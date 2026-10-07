@@ -1,0 +1,12 @@
+node_modules
+.next
+.next-validation
+.data
+.env*
+.vercel
+.swc
+.runtime
+*.tsbuildinfo
+test-results
+playwright-report
+coverage

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["iad1"],
+  "functions": {
+    "src/app/api/[...path]/route.ts": { "maxDuration": 300 },
+    "src/app/.well-known/workflow/v1/step/route.ts": { "maxDuration": 300 }
+  }
+}
