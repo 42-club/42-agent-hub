@@ -1,0 +1,8 @@
+{
+  "archive": "vendor/42-agent-0.1.0.tgz",
+  "sha256": "b7d4514e0af3914a20e628adc035dccb7c0ac7bba2ddf7bb374e1b911efd24a1",
+  "sourceRepository": "https://github.com/42-club/42-agent.git",
+  "sourceCommit": "ba8b40ce0eafe88703dec6db1b787dae8c51bac1",
+  "verifiedRuntimeFiles": 106,
+  "scope": "All dist/src JavaScript and declarations match a fresh source build after CRLF/LF normalization. Archive docs and package scripts reflect its original packaging."
+}
