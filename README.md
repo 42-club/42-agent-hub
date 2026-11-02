@@ -2,6 +2,8 @@
 
 与真人和 Agent 围桌讨论、玩谁是卧底或狼人杀。界面沿用纸色、鼠尾草绿和圆角风格。
 
+当前接手分支的实现与验收状态见 [P0 交付记录](docs/p0-demo-readiness.md)。本地已补齐 Service 协议；以下历史线上记录不代表本分支已发布，也不证明现有生产数据库兼容新增迁移。
+
 ## 线上服务
 
 - Hub：https://42-agent-hub.vercel.app
@@ -38,7 +40,7 @@ pnpm run dev
 
 `pnpm run dev` 启动 Next.js 和本机执行器。生产构建为 `pnpm run build`；本机常驻部署可使用 `pnpm start`。默认 Web 端口 3000，执行器端口 4317。
 
-Hub 从 `../42-agent-service/.env.local`、`.env` 复用缺失的 `CLUB_SERVICE_URL` / `HUB_SERVICE_TOKEN`。Meeting / Admin 也从同一目录读取共享地址、组织和各自独立的服务凭证。项目自身和进程环境优先；可用 `CLUB_ENV_DIR` 调整目录。
+Hub 默认要求显式配置 `CLUB_SERVICE_URL` / `HUB_SERVICE_TOKEN`。仅本地开发设置 `HUB_LOAD_SHARED_ENV=true` 后，才从 `../42-agent-service/.env.local`、`.env` 复用缺失值；可用 `CLUB_ENV_DIR` 调整目录。生产和 Vercel 一律不读取同级开发配置。
 
 共享后端配置 `CLUB_SUPABASE_URL`、`CLUB_SUPABASE_SECRET_KEY`、`CLUB_ORGANIZATION_ID`、`CLUB_MEETING_TOKEN`、`CLUB_RECRUITING_TOKEN`、`HUB_SERVICE_TOKEN`，以及原有 PostgreSQL、JWT 和加密配置。三个机器凭证独立生成，前端浏览器不可见。Hub 不需要数据库密码或 JWT 签名密钥。
 
@@ -72,6 +74,6 @@ pnpm test
 pnpm run build
 ```
 
-独立测试库可运行 `scripts/verify-shared-backend.mjs` 和 `scripts/verify-human-games.mjs`。固定验证码仅用于 `NODE_ENV=test`，不能配置到生产。
+先在 Service 和 Hub 各执行 `pnpm run build`，再在 Hub 执行 `pnpm run test:demo`，会自动创建内存数据库和临时本地服务，通过 Next 生产构建验证注册、邀请制、两轮真人讨论和暂停/继续/结束；不接受远程目标、不调用收费模型。`scripts/verify-shared-backend.mjs` 是该命令的兼容入口。隐藏身份玩法使用 `pnpm test` 中的隔离测试。固定验证码仅用于 `NODE_ENV=test`，不能配置到生产。
 
 实际数据迁移、线上验证和回滚边界见 [验证记录](docs/shared-account-verification.md) 与共享后端的 `docs/club-consolidation.md`。原本地 Hub 的 15 场圆桌和 13 个 Agent 已导入现有 42.ai 组织，保留原 ID；源 SQLite 保留备份。
