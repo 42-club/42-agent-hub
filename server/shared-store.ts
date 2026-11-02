@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentEntity, ProviderConnection } from "../src/domain/types";
 import type { RoomRecord } from "./store";
+import { deploymentEnvironment, serviceUrl, validateHubRuntime } from "../scripts/runtime-config.mjs";
 
 type Provider = ProviderConnection & { apiKey: string; organizationId: string };
 export type RecordRow = { id: string; organizationId: string; kind: "room" | "agent" | "provider"; version: number; data: RoomRecord | AgentEntity | Provider };
@@ -10,9 +11,9 @@ export class StorageError extends Error {
   }
 }
 export function hubEnvironment() {
-  return process.env.NODE_ENV === "production" && process.env.HUB_DEPLOYMENT_ENV === "production" && (!process.env.VERCEL_ENV || process.env.VERCEL_ENV === "production") ? "production" : "development";
+  return deploymentEnvironment();
 }
-export function hubHeaders() { return { authorization: `Bearer ${process.env.HUB_SERVICE_TOKEN ?? ""}`, "content-type": "application/json", "x-hub-protocol": "2", "x-hub-environment": hubEnvironment() }; }
+export function hubHeaders() { return { authorization: `Bearer ${process.env.HUB_SERVICE_TOKEN?.trim() ?? ""}`, "content-type": "application/json", "x-hub-protocol": "2", "x-hub-environment": hubEnvironment() }; }
 
 /** Per-record write queues. Failed optimistic state is discarded; recovery always reads authority. */
 export class SharedHubStore {
@@ -21,9 +22,9 @@ export class SharedHubStore {
   private records = new Map<string, RecordRow>();
   private pending = new Map<string, Promise<void>>();
   private failures = new Map<string, Error>();
-  private base = `${(process.env.CLUB_SERVICE_URL || "http://127.0.0.1:4242/api/v1").replace(/\/$/, "")}/internal/hub/records`;
+  private base = `${serviceUrl()}/internal/hub/records`;
   async initialize() {
-    if (!process.env.HUB_SERVICE_TOKEN || process.env.HUB_SERVICE_TOKEN.length < 32) throw new Error("请配置独立的 HUB_SERVICE_TOKEN。");
+    validateHubRuntime();
     await this.refresh();
     return this;
   }
