@@ -1,0 +1,7 @@
+# This repository is installed independently from 42-agent-service.
+strictDepBuilds: true
+allowBuilds:
+  '@swc/core': true
+  cbor-extract: true
+  esbuild: true
+  fsevents: false

@@ -15,7 +15,7 @@ import type { AgentEntity, Participant, RoomSummary, RoomView } from "../src/dom
 
 export async function createCoordinator(options: { token: string; dataDir: string; cloud?: boolean; store?: SharedHubStore | HubStore; manager?: Pick<AgentProcessManager, "run" | "closeRoom" | "cancelRoom" | "close"> }) {
 const token = options.token;
-if (!token || token.length < 32) throw new Error("请通过 npm run dev 或 npm start 启动完整应用");
+if (!token || token.length < 32) throw new Error("请通过 pnpm run dev 或 pnpm start 启动完整应用");
 const dataDir = resolve(options.dataDir);
 mkdirSync(dataDir, { recursive: true, mode: 0o700 });
 const lockPath = join(dataDir, "coordinator.lock");

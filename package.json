@@ -2,17 +2,18 @@
   "name": "42-agent-hub",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.34.5",
   "type": "module",
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "node scripts/start.mjs dev",
-    "build": "npm run build:worker && next build",
+    "build": "pnpm run build:worker && next build",
     "start": "node scripts/start.mjs start",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
-    "check": "npm run typecheck && npm test && npm run build",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build",
     "build:worker": "node scripts/build-worker.mjs"
   },
   "dependencies": {
