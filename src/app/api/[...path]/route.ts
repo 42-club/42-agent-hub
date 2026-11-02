@@ -12,7 +12,7 @@ async function proxy(request: NextRequest) {
   const baseUrl = process.env.HUB_COORDINATOR_URL;
   const token = process.env.HUB_INTERNAL_TOKEN;
   const cloud = process.env.HUB_EXECUTION === "workflow" || Boolean(process.env.VERCEL);
-  if (!cloud && (!baseUrl || !token)) return Response.json({ error: "房间服务尚未启动，请使用 npm run dev 启动完整应用。" }, { status: 503 });
+  if (!cloud && (!baseUrl || !token)) return Response.json({ error: "房间服务尚未启动，请使用 pnpm run dev 启动完整应用。" }, { status: 503 });
   const mutation = !["GET", "HEAD"].includes(request.method);
   if (mutation) {
     const origin = request.headers.get("origin");

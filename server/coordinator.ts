@@ -1,6 +1,6 @@
 import { createCoordinator } from "./coordinator-runtime";
 const token=process.env.HUB_INTERNAL_TOKEN;
-if(!token)throw new Error("请使用 npm run dev 启动完整应用");
+if(!token)throw new Error("请使用 pnpm run dev 启动完整应用");
 const runtime=await createCoordinator({token,dataDir:process.env.HUB_DATA_DIR||".data"}).catch((error: unknown)=>{
   console.error(`42 Agent Hub · 启动失败：${error instanceof Error ? error.message : "无法启动房间服务"}`);
   process.exit(1);
