@@ -29,20 +29,24 @@ Hub 必须登录后进入：未登录和会话验证期间不挂载大厅、Agen
 
 ## 本地运行与环境复用
 
-需要 Node.js 22.13+。执行核心以 `vendor/42-agent-0.1.0.tgz` 固定打包，部署无需依赖上级目录。
+需要 Node.js 22.13+；开发和验证使用 `.nvmrc` 中的 Node.js 24.22.1，包管理器固定为 pnpm 10.34.5。执行核心以 `vendor/42-agent-0.1.0.tgz` 固定打包，部署无需依赖上级目录。
 
 ```sh
-npm install
-npm run dev
+pnpm install --frozen-lockfile
+pnpm run dev
 ```
 
-`npm run dev` 启动 Next.js 和本机执行器。生产构建为 `npm run build`；本机常驻部署可使用 `npm start`。默认 Web 端口 3000，执行器端口 4317。
+`pnpm run dev` 启动 Next.js 和本机执行器。生产构建为 `pnpm run build`；本机常驻部署可使用 `pnpm start`。默认 Web 端口 3000，执行器端口 4317。
 
 Hub 从 `../42-agent-service/.env.local`、`.env` 复用缺失的 `CLUB_SERVICE_URL` / `HUB_SERVICE_TOKEN`。Meeting / Admin 也从同一目录读取共享地址、组织和各自独立的服务凭证。项目自身和进程环境优先；可用 `CLUB_ENV_DIR` 调整目录。
 
 共享后端配置 `CLUB_SUPABASE_URL`、`CLUB_SUPABASE_SECRET_KEY`、`CLUB_ORGANIZATION_ID`、`CLUB_MEETING_TOKEN`、`CLUB_RECRUITING_TOKEN`、`HUB_SERVICE_TOKEN`，以及原有 PostgreSQL、JWT 和加密配置。三个机器凭证独立生成，前端浏览器不可见。Hub 不需要数据库密码或 JWT 签名密钥。
 
 ## Vercel 执行
+
+本仓库独立安装，提交 `pnpm-lock.yaml`，使用 `pnpm install --frozen-lockfile`。依赖安装脚本策略保存在 `pnpm-workspace.yaml`；新增依赖脚本需审查并更新 `allowBuilds`，不要跳过检查。不要在父目录将 Hub 和 Service 合并安装。
+
+在 Vercel 项目启用 `ENABLE_EXPERIMENTAL_COREPACK=1`，让 `packageManager` 固定 pnpm 10.34.5。清除旧的 npm Install/Build Command 覆盖；构建命令使用 `pnpm run build`（包含 Worker 打包），并核对构建日志中的 pnpm 版本。先在独立预发布环境验证 Workflow 和 Worker，再发布生产。本次迁移不需要数据库变更。
 
 Vercel 部署配置 `HUB_EXECUTION=workflow`、`CLUB_SERVICE_URL`、`HUB_SERVICE_TOKEN`。Workflow 每一步执行一个游戏阶段，通过共享数据库执行锁和版本校验保护状态；轮到真人时结束当前工作流，真人提交后启动后续工作流，因此无需另备常驻服务器。
 
@@ -63,9 +67,9 @@ Vercel 部署配置 `HUB_EXECUTION=workflow`、`CLUB_SERVICE_URL`、`HUB_SERVICE
 ## 验证与维护
 
 ```sh
-npm run typecheck
-npm test
-npm run build
+pnpm run typecheck
+pnpm test
+pnpm run build
 ```
 
 独立测试库可运行 `scripts/verify-shared-backend.mjs` 和 `scripts/verify-human-games.mjs`。固定验证码仅用于 `NODE_ENV=test`，不能配置到生产。

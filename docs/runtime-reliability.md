@@ -29,7 +29,7 @@
    UPDATE agent_service.hub_runtime_environment SET environment='development' WHERE singleton=true;
    ```
    不要为了让本地开发工作而把共享生产库改成 development。
-3. 开发端无须设置 `HUB_DEPLOYMENT_ENV`；`npm run dev` 明确给 Coordinator 和 Next 设置 `NODE_ENV=development`。生产 Hub 与 Service 都需要 `NODE_ENV=production`、`HUB_DEPLOYMENT_ENV=production`；Vercel 上还必须处于 production 环境。Preview 归为 development，不能连接生产写入。
+3. 开发端无须设置 `HUB_DEPLOYMENT_ENV`；`pnpm run dev` 明确给 Coordinator 和 Next 设置 `NODE_ENV=development`。生产 Hub 与 Service 都需要 `NODE_ENV=production`、`HUB_DEPLOYMENT_ENV=production`；Vercel 上还必须处于 production 环境。Preview 归为 development，不能连接生产写入。
 4. 确认旧执行器已由运维安排停止/排空后，先发布新 Service，再发布新 Hub。新 Service 拒绝缺少 `x-hub-protocol: 2` 或环境标签不匹配的写入/租约请求，防止旧代码继续绕过 fencing。期间旧 Hub 写入将被拒绝，应安排维护窗口。此任务没有停止任何用户服务。
 5. SQL.js 的兼容迁移为 `1725063600000-hub-runtime-safety.ts`，只用于遗留隔离测试；共享执行要求现有 PostgreSQL 租约表。无需新增付费设施。
 6. 发布后使用专用测试组织/新测试房间做冒烟验证，不能使用生产中的既有房间做破坏性测试。
@@ -51,10 +51,10 @@ COMMIT;
 
 ## 验证与边界
 
-- Hub：`npm run typecheck`、`npm test`、使用独立 `HUB_BUILD_DIR` 的 `next build`。
-- Service：`npm run lint:typecheck`、身份/组织权限/迁移回归，以及 `test/hub-runtime-postgres.e2e-spec.ts`。
+- Hub：`pnpm run typecheck`、`pnpm test`、使用独立 `HUB_BUILD_DIR` 的 `next build`。
+- Service：`pnpm run lint:typecheck`、身份/组织权限/迁移回归，以及 `test/hub-runtime-postgres.e2e-spec.ts`。
 - 新测试 `tests/runtime-reliability.test.ts` 用真实 Coordinator/HTTP/规则引擎和模拟模型/存储故障验证双工作进程行为；不调用收费模型。
-- 推荐在 Service 执行 `npm run test:hub-runtime-postgres`，使用已有 PostgreSQL 二进制自动创建、测试并停止独立的临时实例（不访问既有服务）。不在 PATH 时设置 `HUB_TEST_PG_BIN`。
+- 推荐在 Service 执行 `pnpm run test:hub-runtime-postgres`，使用已有 PostgreSQL 二进制自动创建、测试并停止独立的临时实例（不访问既有服务）。不在 PATH 时设置 `HUB_TEST_PG_BIN`。
 - 直接运行 PostgreSQL Jest 测试时必须显式提供 `HUB_RELIABILITY_TEST_DATABASE_URL`，且只接受 `127.0.0.1` 上名为 `hub_reliability_test` 的一次性库；默认跳过。测试要求空的 `agent_service` schema 和可创建测试角色的管理员；只清理自己成功创建的 schema。
 - 尚未进行真实云端 Workflow 投递或收费上游模型的线上冒烟。Workflow 投递失败仍保留已确认行动，可重试原请求，或由房主暂停后继续重新调度；没有引入额外消息队列/outbox。正在运行但没有已过期 attempt 的旧房间由房主显式暂停/继续处理。
 - 最后一个数据库回执与进程崩溃之间存在外部系统无法消除的不确定窗口。本实现选择暂停确认，避免自动重复模型调用；不承诺上游模型调用的端到端 exactly-once 计费。
