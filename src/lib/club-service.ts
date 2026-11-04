@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { serviceUrl } from "../../scripts/runtime-config.mjs";
+import { ServiceRequestError, serviceRequest } from "../../scripts/service-request.mjs";
 import { accessPolicy } from "../../scripts/access-policy.mjs";
 
 export interface Organization { id: string; name: string; domain: string; hubAccessEnabled: boolean; role: "owner" | "admin" | "member" | "viewer" }
@@ -8,9 +8,14 @@ export interface ClubSession { user: ClubUser; accessToken: string; activeOrgani
 export class ClubError extends Error { constructor(public status: number, message: string, public retryAfterSeconds?: number, public retryAt?: string) { super(message); } }
 export const CLUB_COOKIE = "42_club_session";
 export async function clubRequest<T>(path: string, options: { token?: string; method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
-  const base = serviceUrl();
-  const response = await fetch(`${base}${path}`, { method: options.method ?? "GET", headers: { "content-type": "application/json", ...options.headers, ...(options.token ? { authorization: `Bearer ${options.token}` } : {}) }, body: options.body === undefined ? undefined : JSON.stringify(options.body), cache: "no-store", signal: AbortSignal.timeout(15000) });
-  const data = await response.json();
+  let result;
+  try {
+    result = await serviceRequest(path, { method: options.method ?? "GET", headers: { "content-type": "application/json", ...options.headers, ...(options.token ? { authorization: `Bearer ${options.token}` } : {}) }, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
+  } catch (error) {
+    if (error instanceof ServiceRequestError) throw new ClubError(503, error.message);
+    throw error;
+  }
+  const { response, data } = result;
   if (!response.ok) throw new ClubError(response.status, Array.isArray(data.message) ? data.message.join("；") : data.message || data.error?.message || data.error || "共享账号服务暂时不可用", data.retryAfterSeconds, data.retryAt);
   return data;
 }

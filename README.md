@@ -54,6 +54,10 @@ Hub 默认要求显式配置 `CLUB_SERVICE_URL` / `HUB_SERVICE_TOKEN`。仅本�
 
 Vercel 部署配置 `HUB_EXECUTION=workflow`、`CLUB_SERVICE_URL`、`HUB_SERVICE_TOKEN`。Workflow 每一步执行一个游戏阶段，通过共享数据库执行锁和版本校验保护状态；轮到真人时结束当前工作流，真人提交后启动后续工作流，因此无需另备常驻服务器。
 
+Service Preview 启用 Vercel Authentication 时，在 Hub 的 Preview 环境配置 `CLUB_SERVICE_PROTECTION_BYPASS`，值取自 **Service 项目**的 Deployment Protection → Protection Bypass for Automation。账号和共享存储请求会在服务端发送 `x-vercel-protection-bypass`；不读取 Hub 自己的 `VERCEL_AUTOMATION_BYPASS_SECRET`。`CLUB_SERVICE_URL` 必须包含 `/api/v1`。密钥不可使用 `NEXT_PUBLIC_` 前缀、放进 URL 或提交仓库；更新后重新部署 Hub Preview。未配置时不新增该请求头，生产可继续使用公开的 Service 生产域名。
+
+`verify:deployment` 和 `verify:live-demo` 同样读取上述 Service 凭证。如果待验收的 Hub 自身也受部署保护，另在执行脚本的本机环境配置 `HUB_VERIFY_PROTECTION_BYPASS`，值必须来自 **Hub 项目**；仅通过 Hub 的部署保护后，脚本仍检查匿名业务请求返回 401。Service 凭证不会发送给 Hub。
+
 每个 Agent 使用打包的独立 Node.js 子进程。每次模型调用前记录执行尝试；未知结果或执行中断不会自动重复计费请求。需要房主处理或继续时，界面显示对应状态。默认模型调用期限 180 秒，Vercel 函数上限 300 秒。
 
 房间、消息、秘密状态和连接密钥保存在后端加密记录中；写入确认后才返回成功。临时目录仅存可丢弃的进程工作文件。SSE 会定期重连并重新检查会话；短暂重连不会显示为掉线。

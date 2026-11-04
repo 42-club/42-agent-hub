@@ -18,7 +18,7 @@ const port = async () => {
 };
 const secret = () => randomBytes(32).toString('hex');
 const env = { ...process.env, NODE_ENV: 'test', DATABASE_DRIVER: 'sqljs', DATABASE_PATH: ':memory:', DB_SYNCHRONIZE: 'false', JWT_SECRET: secret(), APP_ENCRYPTION_KEY: secret(), AUTH_EMAIL_RATE_LIMIT_SECRET: secret(), HUB_SERVICE_TOKEN: secret(), EMAIL_VERIFICATION_TEST_CODE: '424242', AUTH_EMAIL_RATE_LIMIT_DISABLED: 'true', AUTH_ATTEMPT_RATE_LIMIT_DISABLED: 'true' };
-for (const key of ['VERCEL', 'VERCEL_ENV', 'HUB_DEPLOYMENT_ENV', 'DATABASE_URL', 'RESEND_API_KEY', 'OPENROUTER_API_KEY', 'HUB_STORAGE', 'HUB_EXECUTION', 'HUB_TRUSTED_CLIENT_IP_HEADER']) delete env[key];
+for (const key of ['VERCEL', 'VERCEL_ENV', 'HUB_DEPLOYMENT_ENV', 'DATABASE_URL', 'RESEND_API_KEY', 'OPENROUTER_API_KEY', 'HUB_STORAGE', 'HUB_EXECUTION', 'HUB_TRUSTED_CLIENT_IP_HEADER', 'CLUB_SERVICE_PROTECTION_BYPASS', 'HUB_VERIFY_PROTECTION_BYPASS', 'VERCEL_AUTOMATION_BYPASS_SECRET']) delete env[key];
 function observe(child) {
   children.push(child);
   for (const stream of [child.stdout, child.stderr]) stream?.on('data', (data) => { diagnostics = (diagnostics + data).slice(-10000); });

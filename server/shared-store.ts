@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { AgentEntity, ProviderConnection } from "../src/domain/types";
 import type { RoomRecord } from "./store";
-import { deploymentEnvironment, serviceUrl, validateHubRuntime } from "../scripts/runtime-config.mjs";
+import { deploymentEnvironment, validateHubRuntime } from "../scripts/runtime-config.mjs";
+import { ServiceRequestError, serviceRequest } from "../scripts/service-request.mjs";
 
 type Provider = ProviderConnection & { apiKey: string; organizationId: string };
 export type RecordRow = { id: string; organizationId: string; kind: "room" | "agent" | "provider"; version: number; data: RoomRecord | AgentEntity | Provider };
 export class StorageError extends Error {
-  constructor(readonly kind: "network" | "permission" | "conflict" | "storage", readonly status = 503) {
-    super(kind === "conflict" ? "共享状态已变化 (409)，请重新读取后重试。" : kind === "permission" ? "共享存储拒绝访问，请检查环境和权限配置。" : "共享存储暂时不可用，已确认的行动保留。请稍后重试。");
+  constructor(readonly kind: "network" | "permission" | "conflict" | "storage", readonly status = 503, message?: string) {
+    super(message ?? (kind === "conflict" ? "共享状态已变化 (409)，请重新读取后重试。" : kind === "permission" ? "共享存储拒绝访问，请检查环境和权限配置。" : "共享存储暂时不可用，已确认的行动保留。请稍后重试。"));
   }
 }
 export function hubEnvironment() {
@@ -22,18 +23,21 @@ export class SharedHubStore {
   private records = new Map<string, RecordRow>();
   private pending = new Map<string, Promise<void>>();
   private failures = new Map<string, Error>();
-  private base = `${serviceUrl()}/internal/hub/records`;
   async initialize() {
     validateHubRuntime();
     await this.refresh();
     return this;
   }
   async request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
-    let response: Response;
-    try { response = await fetch(`${this.base}${path}`, { method, headers: hubHeaders(), body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15_000) }); }
-    catch { throw new StorageError("network"); }
+    let result;
+    try { result = await serviceRequest(`/internal/hub/records${path}`, { method, headers: hubHeaders(), body: body === undefined ? undefined : JSON.stringify(body) }); }
+    catch (error) {
+      if (error instanceof ServiceRequestError) throw new StorageError(error.kind === "protection" ? "permission" : "network", 503, error.message);
+      throw new StorageError("network");
+    }
+    const { response, data } = result;
     if (!response.ok) throw new StorageError(response.status === 409 ? "conflict" : [401,403].includes(response.status) ? "permission" : "storage", response.status);
-    try { const text = await response.text(); return (!text && method === "GET" ? null : JSON.parse(text)) as T; } catch { throw new StorageError("network"); }
+    return data as T;
   }
   async refresh(id?: string) {
     if (id) {

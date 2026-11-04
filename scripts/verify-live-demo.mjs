@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { validateHubRuntime } from './runtime-config.mjs';
 import { accessPolicy } from './access-policy.mjs';
+import { serviceRequest } from './service-request.mjs';
 
 // Explicit isolated-preview acceptance. Creates ONE labelled live room and
 // preserves its evidence. Never automatically repeats uncertain model actions.
@@ -18,19 +19,19 @@ const base = new URL(process.env.HUB_VERIFY_URL);
 assert.equal(base.protocol, 'https:');
 assert.ok(!base.username && !base.password && !base.search && !base.hash);
 const cookies = new Map();
+const hubBypass = process.env.HUB_VERIFY_PROTECTION_BYPASS?.trim();
 let roomId, completed = false;
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
 async function api(path, method = 'GET', body, headers = {}) {
-  const response = await fetch(new URL(path, base), { method, redirect: 'error', signal: AbortSignal.timeout(30_000), headers: { 'content-type': 'application/json', origin: base.origin, cookie: [...cookies].map(([key,value]) => `${key}=${value}`).join('; '), ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const response = await fetch(new URL(path, base), { method, redirect: 'error', signal: AbortSignal.timeout(30_000), headers: { 'content-type': 'application/json', origin: base.origin, cookie: [...cookies].map(([key,value]) => `${key}=${value}`).join('; '), ...headers, ...(hubBypass ? { 'x-vercel-protection-bypass': hubBypass } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   for (const value of response.headers.getSetCookie()) { const pair = value.split(';')[0], at = pair.indexOf('='); cookies.set(pair.slice(0,at), pair.slice(at+1)); }
   if (!response.ok) throw new Error(`Acceptance request failed (${response.status}) at ${path}; inspect the labelled test room and server logs`);
   return response.json();
 }
 try {
   // Verify DB environment BEFORE creating a room or invoking a provider.
-  const preflight = await fetch(`${config.url}/internal/hub/records`, { redirect: 'error', signal: AbortSignal.timeout(20_000), headers: { authorization: `Bearer ${process.env.HUB_SERVICE_TOKEN}`, 'x-hub-protocol': '2', 'x-hub-environment': 'development' } });
+  const { response: preflight } = await serviceRequest('/internal/hub/records', { signal: AbortSignal.timeout(20_000), headers: { authorization: `Bearer ${process.env.HUB_SERVICE_TOKEN}`, 'x-hub-protocol': '2', 'x-hub-environment': 'development' } });
   assert.ok(preflight.ok, 'Preview storage/environment preflight failed');
-  await preflight.body?.cancel();
   await api('/api/auth/login', 'POST', { email: process.env.HUB_VERIFY_EMAIL, password: process.env.HUB_VERIFY_PASSWORD });
   let session = await api('/api/auth/session');
   assert.ok(session.organizations.some((org) => org.id === organizationId && policy.allows(org)), 'Test account is not a member of the test organization');
