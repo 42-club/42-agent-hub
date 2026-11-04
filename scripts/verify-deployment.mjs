@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import { validateHubRuntime } from './runtime-config.mjs';
-import { accessPolicy } from './access-policy.mjs';
 
 // Read-only preflight. No registration, writes, Workflow or model calls.
 const config = validateHubRuntime();
-accessPolicy();
 const hub = process.env.HUB_VERIFY_URL;
 if (!hub) throw new Error('Set HUB_VERIFY_URL to the candidate Hub deployment');
 async function read(url, headers = {}) {

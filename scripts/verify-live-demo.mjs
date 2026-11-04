@@ -11,9 +11,9 @@ assert.equal(process.env.HUB_VERIFY_TARGET, 'isolated-preview', 'Set HUB_VERIFY_
 const required = ['HUB_VERIFY_URL', 'HUB_VERIFY_EMAIL', 'HUB_VERIFY_PASSWORD', 'HUB_VERIFY_ORGANIZATION_ID', 'HUB_VERIFY_AGENT_ID'];
 for (const key of required) assert.ok(process.env[key], `Missing ${key}`);
 const policy = accessPolicy();
-assert.equal(policy.mode, 'invite-only');
+assert.equal(policy.mode, 'self-service');
 const organizationId = process.env.HUB_VERIFY_ORGANIZATION_ID;
-assert.ok(policy.allows(organizationId));
+
 const base = new URL(process.env.HUB_VERIFY_URL);
 assert.equal(base.protocol, 'https:');
 assert.ok(!base.username && !base.password && !base.search && !base.hash);
@@ -33,7 +33,7 @@ try {
   await preflight.body?.cancel();
   await api('/api/auth/login', 'POST', { email: process.env.HUB_VERIFY_EMAIL, password: process.env.HUB_VERIFY_PASSWORD });
   let session = await api('/api/auth/session');
-  assert.ok(session.organizations.some((org) => org.id === organizationId), 'Test account is not a member of the test organization');
+  assert.ok(session.organizations.some((org) => org.id === organizationId && policy.allows(org)), 'Test account is not a member of the test organization');
   if (session.activeOrganization?.id !== organizationId) await api(`/api/organizations/${organizationId}/switch`, 'POST', {});
   session = await api('/api/auth/session');
   assert.equal(session.activeOrganization.id, organizationId);

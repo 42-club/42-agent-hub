@@ -57,11 +57,12 @@ try {
     sessions.push(await backend('/auth/verify-email', 'POST', { email, code: '424242' }, 201));
   }
   const auth = (session) => ({ authorization: `Bearer ${session.accessToken}` });
-  const organization = await backend('/organizations', 'POST', { name: 'Demo acceptance', domain: `${randomUUID()}.example.com` }, 201, auth(sessions[0]));
-  const organizationId = organization.session.activeOrganizationId;
+  const organizationId = sessions[0].activeOrganizationId;
+  assert.ok(organizationId, 'Verification must create and select a default organization');
+  const organization = { session: sessions[0] };
   await backend(`/organizations/${organizationId}/invitations`, 'POST', { email: emails[1] }, 201, auth(organization.session));
   const webPort = await port(), coordinatorPort = await port();
-  const hubEnv = { ...env, NODE_ENV: 'production', HUB_DEPLOYMENT_ENV: 'development', CLUB_SERVICE_URL: serviceBase, HUB_INTERNAL_TOKEN: secret(), HUB_COORDINATOR_URL: `http://127.0.0.1:${coordinatorPort}`, HUB_COORDINATOR_PORT: String(coordinatorPort), HUB_DATA_DIR: directory, HUB_ACCESS_MODE: 'invite-only', HUB_ALLOWED_ORGANIZATION_IDS: organizationId };
+  const hubEnv = { ...env, NODE_ENV: 'production', HUB_DEPLOYMENT_ENV: 'development', CLUB_SERVICE_URL: serviceBase, HUB_INTERNAL_TOKEN: secret(), HUB_COORDINATOR_URL: `http://127.0.0.1:${coordinatorPort}`, HUB_COORDINATOR_PORT: String(coordinatorPort), HUB_DATA_DIR: directory };
   observe(spawn(process.execPath, ['--import', 'tsx', 'server/coordinator.ts'], { env: hubEnv, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }));
   observe(spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', String(webPort)], { env: hubEnv, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }));
   const base = `http://127.0.0.1:${webPort}`;
@@ -75,10 +76,14 @@ try {
   await member(`/api/organizations/invitations/${invitation.id}/accept`, 'POST', {});
   assert.equal((await member('/api/auth/session')).activeOrganization.id, organizationId);
   await member('/api/organizations', 'POST', { name: 'Forbidden', domain: 'forbidden.example.com' }, 403);
-  await outsider('/api/dashboard', 'GET', undefined, 403);
+  const outsiderSession = await outsider('/api/auth/session');
+  assert.ok(outsiderSession.activeOrganization);
+  assert.notEqual(outsiderSession.activeOrganization.id, organizationId);
+  await outsider(`/api/organizations/${organizationId}/switch`, 'POST', {}, 403);
   const provider = await owner('/api/providers', 'POST', { name: 'Smoke demo', kind: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1' });
   const agent = await owner('/api/agents', 'POST', { providerId: provider.id, vendor: 'OpenAI', modelId: 'smoke-model', modelName: 'Demo Agent' });
   const { id } = await owner('/api/rooms', 'POST', { title: 'Demo acceptance', topic: 'A reproducible handover', mode: 'debate', agentIds: [agent.id, agent.id], joinAsParticipant: true, executionMode: 'demo', options: { rounds: 2 } }, 201);
+  await outsider(`/api/rooms/${id}`, 'GET', undefined, 404);
   const control = async (action, roomId = id) => {
     const room = await owner(`/api/rooms/${roomId}`);
     return owner(`/api/rooms/${roomId}/control`, 'POST', { action, generation: room.executionGeneration }, 200, { 'idempotency-key': randomUUID() });
