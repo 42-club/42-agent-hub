@@ -50,7 +50,7 @@ pnpm run release:manifest
 1. 使用独立 Preview 数据库，先应用 Service 初始迁移，再应用 `20261102000000_hub_records.sql`。这是重新补齐的**新建库结构**，不是已确认兼容历史生产表的升级脚本。
 2. 由管理员确认库独立后，将该库 `agent_service.hub_runtime_environment` 的唯一行标记为 `development`。运行账号只能 SELECT，不能改标签；绝不修改生产库标签来绕过保护。
 3. Service 配置专用运行角色、数据库 TLS、独立 JWT/加密/限流密钥、测试环境机器令牌及真实邮件配置。Hub 显式配置相同环境的 `CLUB_SERVICE_URL`、独立 `HUB_SERVICE_TOKEN`。
-4. 管理员在测试组织配置模型连接和预设 Agent。Hub 设置 `HUB_ACCESS_MODE=invite-only`、`HUB_ALLOWED_ORGANIZATION_IDS=<测试组织 UUID>`；生产同样要求组织白名单。
+4. 管理员在测试组织配置模型连接和预设 Agent。默认组织在完成邮箱验证时自动加入数据库白名单；已有测试组织先通过后端 `hub:onboarding --allow <组织 UUID> --apply` 导入准入记录。
 5. 只将经过确认由托管入口覆盖的单一客户端 IP 头配置到 `HUB_TRUSTED_CLIENT_IP_HEADER`。不要信任浏览器自报的 X-Forwarded-For 或逗号链。Hub 与 Service 机器令牌一致后才能验签归因。
 6. Preview 使用真实云端 Workflow；生产构建的 `NODE_ENV=production` 不等于可以访问生产数据。生产发布要求双方 `HUB_DEPLOYMENT_ENV=production` 且数据库标签为 production。
 7. 先发布匹配 Service，再发布 Hub。用 `pnpm run verify:deployment` 做只读预检；该命令要求已注入运行配置和 `HUB_VERIFY_URL`，不会写入、发邮件或调用模型。

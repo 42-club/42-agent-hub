@@ -15,6 +15,8 @@
 
 ## 账号、组织与数据
 
+完成邮箱验证后自动创建默认组织并加入数据库白名单；已有组织导入、存量账号补建和发布顺序见 [默认组织与准入升级](docs/organization-onboarding.md)。`HUB_ALLOWED_ORGANIZATION_IDS` 与 `HUB_ACCESS_MODE` 不再使用。
+
 登录、注册、邮箱验证、找回密码、组织、成员和邀请统一使用 `42-agent-service` 原有 API。已有 Meeting / Admin 的已验证账号已按邮箱合并到唯一成员 ID，保留原账号密码的 bcrypt 验证器；修改或重置密码后，旧验证器与旧会话失效。运行时不依赖旧 Supabase Auth。
 
 组织内成员可查看圆桌，开场前加入真人席位。只读成员不能修改或入座；模型连接由组织 Owner / Admin 配置；圆桌由房主控制。Admin 另保留招聘业务权限，加入组织不会自动获得候选人资料权限。
