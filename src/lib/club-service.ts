@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { serviceUrl } from "../../scripts/runtime-config.mjs";
 import { accessPolicy } from "../../scripts/access-policy.mjs";
 
-export interface Organization { id: string; name: string; domain: string; role: "owner" | "admin" | "member" | "viewer" }
+export interface Organization { id: string; name: string; domain: string; hubAccessEnabled: boolean; role: "owner" | "admin" | "member" | "viewer" }
 export interface ClubUser { id: string; email: string; displayName: string; activeOrganizationId?: string | null }
 export interface ClubSession { user: ClubUser; accessToken: string; activeOrganizationId: string | null; organizations: Organization[] }
 export class ClubError extends Error { constructor(public status: number, message: string, public retryAfterSeconds?: number, public retryAt?: string) { super(message); } }
@@ -25,7 +25,7 @@ export async function currentClubSession() {
   try {
     const { user } = await clubRequest<{ user: ClubUser }>("/auth/me", { token });
     const policy = accessPolicy();
-    const organizations = (await clubRequest<Organization[]>("/organizations", { token })).filter((org) => policy.allows(org.id));
+    const organizations = (await clubRequest<Organization[]>("/organizations", { token })).filter((org) => policy.allows(org));
     const activeOrganization = organizations.find((org) => org.id === user.activeOrganizationId) ?? null;
     return { user: { ...user, profile: { display_name: user.displayName } }, token, organizations, activeOrganization, canCreateOrganization: policy.canCreateOrganization };
   } catch (error) {

@@ -7,15 +7,12 @@ import { deploymentEnvironment, serviceUrl, validateHubRuntime } from "../script
 import { loadSharedAccountEnv } from "../scripts/shared-env.mjs";
 import { accessPolicy } from "../scripts/access-policy.mjs";
 
-test("invite-only demo fails closed and admits only explicitly allowed organizations", () => {
-  const env = { NODE_ENV: "production" as const, HUB_DEPLOYMENT_ENV: "production" };
-  assert.throws(() => accessPolicy(env), /ORGANIZATION_IDS/);
-  assert.throws(() => accessPolicy({ ...env, HUB_ACCESS_MODE: "open" }), /invite-only/);
-  const id = "12345678-1234-1234-1234-123456789abc";
-  const policy = accessPolicy({ ...env, HUB_ALLOWED_ORGANIZATION_IDS: id });
+test("database admission fails closed and follows fresh account-service metadata", () => {
+  const policy = accessPolicy();
+  assert.equal(policy.mode, "self-service");
   assert.equal(policy.canCreateOrganization, false);
-  assert.equal(policy.allows(id), true);
-  assert.equal(policy.allows("another-organization"), false);
+  assert.equal(policy.allows({ hubAccessEnabled: true }), true);
+  for (const value of [undefined, null, {}, { hubAccessEnabled: false }, { hubAccessEnabled: "true" }]) assert.equal(policy.allows(value), false);
 });
 
 test("deployment configuration fails closed instead of falling back to local or production resources", () => {
