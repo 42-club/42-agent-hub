@@ -2,21 +2,64 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ModelRequest } from "42-agent";
 import { platformModels, PriorityModelClient, ModelsUnavailableError, ModelOutcomeUnknownError, type ModelAttempt } from "../server/platform-models";
+import { parseModelProviderPriority } from "../scripts/model-provider-priority.mjs";
 
-const models = platformModels({ NODE_ENV: "test", DEEPSEEK_API_KEY: "deepseek-secret", OPENROUTER_API_KEY: "router-secret" });
+const credentials = { NODE_ENV: "test", DEEPSEEK_API_KEY: "deepseek-secret", OPENROUTER_API_KEY: "router-secret" };
+// Explicit reverse order keeps the DeepSeek adapter/fallback regressions covered.
+const models = platformModels({ ...credentials, HUB_MODEL_PROVIDER_PRIORITY: "deepseek,openrouter" });
 const request: ModelRequest = { systemPrompt: "你是陈序", messages: [{ role: "user", content: "只可见的本轮任务" }], tools: [{ name: "vote", description: "投票", inputSchema: { type: "object", properties: { targetId: { type: "string" } } } }] };
 const success = () => Response.json({ choices: [{ message: { tool_calls: [{ id: "call", type: "function", function: { name: "vote", arguments: '{"targetId":"seat-2"}' } }] } }] });
 
-test("platform model credentials are server-owned and priority is DeepSeek then OpenRouter", () => {
-  assert.deepEqual(models.map((model) => model.provider), ["deepseek", "openrouter"]);
+test("platform model credentials are server-owned and default priority is OpenRouter then DeepSeek", () => {
+  assert.deepEqual(platformModels(credentials).map((model) => model.provider), ["openrouter", "deepseek"]);
   assert.deepEqual(platformModels({}), []);
   assert.deepEqual(platformModels({ OPENROUTER_API_KEY: "key" }).map((model) => model.provider), ["openrouter"]);
+  assert.deepEqual(platformModels({ DEEPSEEK_API_KEY: "key" }).map((model) => model.provider), ["deepseek"]);
   assert.deepEqual(platformModels({ DEEPSEEK_API_KEY: "key", DEEPSEEK_BASE_URL: "http://evil.example/api" }), []);
   assert.deepEqual(platformModels({ DEEPSEEK_API_KEY: "key", DEEPSEEK_BASE_URL: "invalid", OPENROUTER_API_KEY: "key" }).map((model) => model.provider), ["openrouter"]);
   assert.deepEqual(platformModels({ DEEPSEEK_API_KEY: "key", DEEPSEEK_ENABLED: "false", OPENROUTER_API_KEY: "key" }).map((model) => model.provider), ["openrouter"]);
 });
 
-test("every inference starts at DeepSeek, preserving persona/context and disabling thinking", async () => {
+test("provider priority accepts case, whitespace and duplicates, defaults when empty, and rejects unknown names", () => {
+  for (const value of [undefined, "", "  ", ", ,,"]) assert.deepEqual(parseModelProviderPriority(value), ["openrouter", "deepseek"]);
+  assert.deepEqual(parseModelProviderPriority(" DeepSeek , OPENROUTER , deepseek,,OpenRouter,"), ["deepseek", "openrouter"]);
+  assert.deepEqual(parseModelProviderPriority("OPENROUTER"), ["openrouter"]);
+  assert.deepEqual(parseModelProviderPriority("deepseek"), ["deepseek"]);
+  for (const value of ["openroutre,deepseek", "private-config-value", "openrouter;deepseek", "openrouter，deepseek"]) {
+    assert.throws(() => parseModelProviderPriority(value), (error: unknown) => error instanceof Error && error.message.includes("HUB_MODEL_PROVIDER_PRIORITY") && !error.message.includes(value));
+    assert.throws(() => platformModels({ HUB_MODEL_PROVIDER_PRIORITY: value }), /HUB_MODEL_PROVIDER_PRIORITY/, "invalid priority fails even without model credentials");
+  }
+});
+
+test("actual model calls follow default and configured order, restarting at the first provider every inference", async () => {
+  for (const priority of [undefined, " DEEPSEEK , OpenRouter "]) {
+    const ordered = platformModels({ ...credentials, HUB_MODEL_PROVIDER_PRIORITY: priority });
+    const attempted: string[] = [], reports: ModelAttempt[] = [];
+    const client = new PriorityModelClient(ordered, async (attempt) => { reports.push(attempt); }, async (url) => {
+      attempted.push(String(url));
+      return attempted.length % 2 ? new Response("unavailable", { status: 503 }) : success();
+    });
+    await client.complete(request); await client.complete(request);
+    const urls = ordered.map((model) => `${model.baseUrl}/chat/completions`);
+    assert.deepEqual(attempted, [...urls, ...urls]);
+    assert.deepEqual(reports.filter((attempt) => attempt.status === "started").map((attempt) => attempt.provider), [...ordered, ...ordered].map((model) => model.provider));
+    assert.equal(reports.filter((attempt) => attempt.status === "succeeded").length, 2);
+  }
+});
+
+test("an explicit provider list is complete and unavailable entries never reintroduce excluded providers", async () => {
+  const onlyDeepSeek = platformModels({ ...credentials, HUB_MODEL_PROVIDER_PRIORITY: "DEEPSEEK" });
+  assert.deepEqual(onlyDeepSeek.map((model) => model.provider), ["deepseek"]);
+  assert.deepEqual(platformModels({ ...credentials, HUB_MODEL_PROVIDER_PRIORITY: "DEEPSEEK", DEEPSEEK_ENABLED: "false" }), []);
+  assert.deepEqual(platformModels({ ...credentials, HUB_MODEL_PROVIDER_PRIORITY: "DEEPSEEK", DEEPSEEK_API_KEY: "" }), []);
+  assert.deepEqual(platformModels({ ...credentials, HUB_MODEL_PROVIDER_PRIORITY: "DEEPSEEK", DEEPSEEK_BASE_URL: "invalid" }), []);
+  let calls = 0;
+  const client = new PriorityModelClient(onlyDeepSeek, undefined, async (url) => { calls++; assert.match(String(url), /^https:\/\/api.deepseek.com\//); return new Response("unavailable", { status: 503 }); });
+  await assert.rejects(client.complete(request), ModelsUnavailableError);
+  assert.equal(calls, 1, "OpenRouter must not be appended after the selected provider fails");
+});
+
+test("configured DeepSeek-first inference preserves persona/context and disables thinking", async () => {
   const calls: string[] = [], attempts: ModelAttempt[] = [];
   const client = new PriorityModelClient(models, async (attempt) => { attempts.push(attempt); }, async (url, init) => {
     calls.push(String(url));

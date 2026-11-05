@@ -1,3 +1,5 @@
+import { parseModelProviderPriority } from './model-provider-priority.mjs';
+
 // Runtime validation, shared by the launcher and server. Build does not need secrets.
 export function deploymentEnvironment(env = process.env) {
   if (env.HUB_DEPLOYMENT_ENV && !["development", "production"].includes(env.HUB_DEPLOYMENT_ENV)) throw new Error("HUB_DEPLOYMENT_ENV must be development or production");
@@ -18,6 +20,7 @@ export function serviceUrl(env = process.env) {
 }
 
 export function validateHubRuntime(env = process.env) {
+  parseModelProviderPriority(env.HUB_MODEL_PROVIDER_PRIORITY);
   const environment = deploymentEnvironment(env);
   const url = serviceUrl(env);
   const token = env.HUB_SERVICE_TOKEN?.trim();

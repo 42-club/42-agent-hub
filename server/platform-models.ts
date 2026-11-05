@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ModelClient, ModelRequest, ModelResponse } from "42-agent";
 import { OpenRouterModelClient } from "42-agent/provider";
+import { parseModelProviderPriority } from "../scripts/model-provider-priority.mjs";
 
 export interface PlatformModel {
   provider: "deepseek" | "openrouter";
@@ -26,10 +27,12 @@ export class ModelOutcomeUnknownError extends Error {
 
 /** Secrets are read only in the coordinator and sent over private worker IPC. */
 export function platformModels(env: Record<string, string | undefined> = process.env): PlatformModel[] {
-  return ([
-    { provider: "deepseek", modelId: env.DEEPSEEK_MODEL?.trim() || "deepseek-flash", baseUrl: env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com", apiKey: env.DEEPSEEK_API_KEY?.trim() || "" },
-    { provider: "openrouter", modelId: env.OPENROUTER_MODEL?.trim() || "openai/gpt-5.4", baseUrl: env.OPENROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1", apiKey: env.OPENROUTER_API_KEY?.trim() || "" },
-  ] satisfies PlatformModel[]).filter((model) => {
+  const priority = parseModelProviderPriority(env.HUB_MODEL_PROVIDER_PRIORITY);
+  const models: Record<PlatformModel["provider"], PlatformModel> = {
+    openrouter: { provider: "openrouter", modelId: env.OPENROUTER_MODEL?.trim() || "openai/gpt-5.4", baseUrl: env.OPENROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1", apiKey: env.OPENROUTER_API_KEY?.trim() || "" },
+    deepseek: { provider: "deepseek", modelId: env.DEEPSEEK_MODEL?.trim() || "deepseek-flash", baseUrl: env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com", apiKey: env.DEEPSEEK_API_KEY?.trim() || "" },
+  };
+  return priority.map((provider) => models[provider]).filter((model) => {
     if (!model.apiKey || env[`${model.provider.toUpperCase()}_ENABLED`]?.trim().toLowerCase() === "false") return false;
     let url: URL;
     try { url = new URL(model.baseUrl); } catch { return false; }

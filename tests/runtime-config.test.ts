@@ -7,6 +7,10 @@ import { deploymentEnvironment, serviceUrl, validateHubRuntime } from "../script
 import { loadSharedAccountEnv } from "../scripts/shared-env.mjs";
 import { accessPolicy } from "../scripts/access-policy.mjs";
 
+test("invalid model provider priority is rejected by runtime and preflight configuration validation", () => {
+  assert.throws(() => validateHubRuntime({ NODE_ENV: "test", HUB_MODEL_PROVIDER_PRIORITY: "unknown-secret-value" }), (error: unknown) => error instanceof Error && /HUB_MODEL_PROVIDER_PRIORITY/.test(error.message) && !error.message.includes("unknown-secret-value"));
+});
+
 test("database admission fails closed and follows fresh account-service metadata", () => {
   const policy = accessPolicy();
   assert.equal(policy.mode, "self-service");
