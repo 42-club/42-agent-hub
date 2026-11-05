@@ -1,6 +1,8 @@
 export type GameMode = "debate" | "undercover" | "werewolf";
 export type RoomStatus = "waiting" | "running" | "paused" | "completed" | "error";
 export type ProviderKind = "openrouter" | "openai-compatible";
+export const AGENT_PORTRAITS = ["xiaoman", "chenxu", "xutang", "zhouye", "feiyu"] as const;
+export type AgentPortrait = typeof AGENT_PORTRAITS[number];
 
 export interface ProviderConnection {
   organizationId?: string;
@@ -16,6 +18,11 @@ export interface AgentEntity {
   organizationId?: string;
   id: string;
   source: "system" | "personal";
+  /** Old records without this flag remain disabled. */
+  enabled?: boolean;
+  portrait?: AgentPortrait;
+  traits?: string[];
+  background?: string;
   ownerId?: string;
   name: string;
   description: string;
@@ -76,6 +83,7 @@ export interface Participant {
   modelName: string;
   color: string;
   seat: number;
+  portrait?: AgentPortrait;
   /** Server-only immutable persona snapshot. Redacted from all public views. */
   agentSnapshot?: AgentEntity;
 }

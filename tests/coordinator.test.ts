@@ -53,7 +53,7 @@ test("coordinator persists a multi-process round, resumes after restart, and nev
     await start();
     assert.equal((await fetch(`${base}/api/dashboard`)).status, 401);
     let dashboard = await api<DashboardData>("/api/dashboard");
-    assert.equal(dashboard.agents.length, 4);
+    assert.equal(dashboard.agents.length, 5);
     const key = "local-test-secret-must-not-leak";
     dashboard = await api<DashboardData>("/api/dashboard");
     assert.equal("providers" in dashboard, false);

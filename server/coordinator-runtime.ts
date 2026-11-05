@@ -219,6 +219,7 @@ async function runRoom(id: string, signal: AbortSignal, expectedGeneration: numb
         const failures = results.flatMap((result, index) => {
           if (result.status !== "rejected") return [];
           const labels: Record<string, string> = {
+            invalid_speech: "Agent 暂时未能生成合适的对话",
             models_unavailable: "当前 AI 服务暂不可用", model_outcome_unknown: "模型请求结果未能确认",
             timeout: "请求超时", authentication: "模型服务认证失败", rate_limit: "服务商限流，请稍后重试",
             invalid_request: "上游拒绝请求参数或工具格式", insufficient_credits: "模型服务余额不足",
@@ -361,12 +362,12 @@ const server = createServer(async (request, response) => {
     if (resource === "agents") {
       if (systemAgents().some((agent) => agent.id === id)) throw new HttpError(403, "系统 Agent 由平台维护，可以另存为个人 Agent。");
       const previous = id ? store.getAgent(id) : undefined;
-      if (id && (!previous || !isPersonalAgent(previous) || previous.ownerId !== userId)) throw new HttpError(404, "Agent 不存在");
+      if (id && (!previous || !isPersonalAgent(previous) || previous.enabled !== true || previous.ownerId !== userId)) throw new HttpError(404, "Agent 不存在");
       if (!userId || !organizationId) throw new HttpError(401, "请先登录并选择组织");
       if ((method === "POST" && !id) || (method === "PUT" && id)) {
         const input = agentSchema.parse(await body(request));
         const agent: AgentEntity = { ...input, organizationId: previous?.organizationId ?? organizationId,
-          id: id ?? randomUUID(), source: "personal", ownerId: userId,
+          id: id ?? randomUUID(), source: "personal", ownerId: userId, enabled: true,
           version: previous && isPersonalAgent(previous) ? previous.version + 1 : 1,
           color: input.color ?? previous?.color ?? "#77977b", createdAt: previous?.createdAt ?? new Date().toISOString() };
         store.saveAgent(agent); await store.flush(agent.id); await sendJson(response, agent); return;
@@ -381,7 +382,7 @@ const server = createServer(async (request, response) => {
         const participants: Participant[] = input.agentIds.map((agentId, index) => {
           const agent = agents.find((item) => item.id === agentId);
           if (!agent) throw new HttpError(400, "所选 Agent 不存在或无权使用，请重新选择。");
-          return { id: randomUUID(), agentId, providerId: "", vendor: "Agent", modelId: "", modelName: agent.name, color: agent.color, seat: index + 1, agentSnapshot: structuredClone(agent) };
+          return { id: randomUUID(), agentId, providerId: "", vendor: "Agent", modelId: "", modelName: agent.name, color: agent.color, portrait: agent.portrait, seat: index + 1, agentSnapshot: structuredClone(agent) };
         });
         if (input.joinAsParticipant) participants.push(humanSeat(participants.length + 1));
         // A human could otherwise switch to spectator mode to discover secret identities.

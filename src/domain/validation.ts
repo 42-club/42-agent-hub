@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DEFAULT_OPTIONS } from "./types";
+import { AGENT_PORTRAITS, DEFAULT_OPTIONS } from "./types";
 
 const text = (max: number) => z.string().trim().min(1, "不能为空").max(max);
 export const agentSchema = z.object({
@@ -7,6 +7,7 @@ export const agentSchema = z.object({
   description: z.string().trim().max(240).default(""),
   instructions: z.string().trim().max(4000).default(""),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  portrait: z.enum(AGENT_PORTRAITS).optional(),
 }).strict();
 
 export const roomSchema = z.object({

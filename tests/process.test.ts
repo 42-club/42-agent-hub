@@ -291,3 +291,27 @@ test("platform routing executes one action after DeepSeek rejection, preserves p
     assert.equal(primaryCalls, 2, "failed route must not be automatically retried by core");
   } finally { await manager.close(); await primary.close(); await fallback.close(); await rm(dataDir, { recursive: true, force: true }); }
 });
+
+
+test("AI speeches are corrected before IPC and repeated reports stop after two invalid outputs", { timeout: 15_000 }, async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "hub-dialogue-"));
+  const manager = new AgentProcessManager({ dataDir });
+  let requests = 0, accepted = 0, alwaysReport = false;
+  const mock = await providerServer((_request, response, body) => {
+    requests++;
+    assert.match(JSON.stringify(body.messages), /默认一句完整口语/);
+    const content = alwaysReport || requests === 1 ? "结论：先看需求。" : "我觉得先找几个愿意付钱的人聊聊，心里会更有底。";
+    stream(response, { tool_calls: [{ index: 0, id: `speech-${requests}`, type: "function", function: { name: speech.name, arguments: JSON.stringify({ channelId: "public", content }) } }] });
+  });
+  try {
+    const provider = { kind: "openai-compatible" as const, baseUrl: mock.baseUrl, apiKey: "mock-secret" };
+    await manager.run(input("corrected", { executionMode: "live", provider, onAction: async (_name, args) => {
+      accepted++; assert.equal(args.content, "我觉得先找几个愿意付钱的人聊聊，心里会更有底。"); return { turnComplete: true };
+    } }));
+    assert.equal(requests, 2); assert.equal(accepted, 1);
+    alwaysReport = true; requests = 0;
+    await assert.rejects(manager.run(input("reports", { executionMode: "live", provider, onAction: async () => { accepted++; } })), (error: unknown) => error instanceof AgentExecutionError && error.code === "invalid_speech");
+    assert.equal(requests, 2, "bad speech corrections cannot trigger unbounded paid requests");
+    assert.equal(accepted, 1, "invalid drafts must never leave the worker as game actions");
+  } finally { await manager.close(); await mock.close(); await rm(dataDir, { recursive: true, force: true }); }
+});

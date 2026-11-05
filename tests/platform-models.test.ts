@@ -4,7 +4,7 @@ import type { ModelRequest } from "42-agent";
 import { platformModels, PriorityModelClient, ModelsUnavailableError, ModelOutcomeUnknownError, type ModelAttempt } from "../server/platform-models";
 
 const models = platformModels({ NODE_ENV: "test", DEEPSEEK_API_KEY: "deepseek-secret", OPENROUTER_API_KEY: "router-secret" });
-const request: ModelRequest = { systemPrompt: "你是理性分析者", messages: [{ role: "user", content: "只可见的本轮任务" }], tools: [{ name: "vote", description: "投票", inputSchema: { type: "object", properties: { targetId: { type: "string" } } } }] };
+const request: ModelRequest = { systemPrompt: "你是陈序", messages: [{ role: "user", content: "只可见的本轮任务" }], tools: [{ name: "vote", description: "投票", inputSchema: { type: "object", properties: { targetId: { type: "string" } } } }] };
 const success = () => Response.json({ choices: [{ message: { tool_calls: [{ id: "call", type: "function", function: { name: "vote", arguments: '{"targetId":"seat-2"}' } }] } }] });
 
 test("platform model credentials are server-owned and priority is DeepSeek then OpenRouter", () => {

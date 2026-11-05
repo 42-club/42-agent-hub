@@ -129,7 +129,7 @@ test("both secret-role games run through independent demo core workers to a dura
       for (const eventId of committedIds) assert.ok(afterMessage.events.some((event) => event.id === eventId && event.type === "message"), "A durable Agent action was overwritten by a stale host-message snapshot");
       const done = await until(() => api<RoomView>(`/api/rooms/${debate.id}`), (room) => ["completed", "error"].includes(room.status));
       assert.equal(done.status, "completed");
-      assert.equal(done.events.filter((event) => event.type === "message").length, 8);
+      assert.equal(done.events.filter((event) => event.type === "message").length, dashboard.agents.length * 2);
     } finally { pendingRequest.destroy(); await delivered.catch(() => undefined); }
   } finally { await stop(); rmSync(dataDir, { recursive: true, force: true }); }
 });

@@ -5,8 +5,9 @@ import { fileURLToPath } from "node:url";
 import type { PlatformModel, ModelAttempt } from "./platform-models";
 import type { Participant, ToolSpec } from "../src/domain/types";
 
-export type AgentExecutionErrorCode = "timeout" | "authentication" | "rate_limit" | "invalid_request" | "insufficient_credits" | "model_unavailable" | "service_unavailable" | "provider" | "missing_action" | "cancelled" | "process_exit" | "models_unavailable" | "model_outcome_unknown";
+export type AgentExecutionErrorCode = "timeout" | "authentication" | "rate_limit" | "invalid_request" | "insufficient_credits" | "model_unavailable" | "service_unavailable" | "provider" | "missing_action" | "cancelled" | "process_exit" | "models_unavailable" | "model_outcome_unknown" | "invalid_speech";
 const ERROR_MESSAGES: Record<AgentExecutionErrorCode, string> = {
+  invalid_speech: "Agent 暂时未能生成合适的对话，进度已保留，请稍后继续。",
   models_unavailable: "当前 AI 服务暂不可用，本场进度已保留，请稍后重试。",
   model_outcome_unknown: "模型请求结果未能确认，本场进度已保留，请稍后重试。",
   timeout: "Agent 响应超时，已确认的行动已保留，请稍后继续",

@@ -5915,3 +5915,10 @@ code {
 .icon-credits a { text-decoration: underline; text-underline-offset: 3px; }
 
 .page-heading-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; flex-shrink: 0; }
+
+/* Shared character portraits and concise personality labels. */
+.model-avatar > .character-portrait { width: 100%; height: 100%; max-width: none; border-radius: inherit; }
+.agent-traits { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 12px; }
+.agent-traits > span { padding: 3px 9px; border-radius: 20px; background: #eef1e7; color: #52664d; font-size: 11px; line-height: 1.6; }
+.agent-card > p { line-height: 1.8; color: #627158; font-size: 13px; }
+.agent-card-footer .text-link { font-size: 12px; }

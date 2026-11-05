@@ -94,14 +94,14 @@ try {
   assert.notEqual(outsiderSession.activeOrganization.id, organizationId);
   await outsider(`/api/organizations/${organizationId}/switch`, 'POST', {}, 403);
   const initialDashboard = await owner('/api/dashboard');
-  assert.equal(initialDashboard.agents.length, 4);
+  assert.equal(initialDashboard.agents.length, 5);
   assert.equal('providers' in initialDashboard, false);
   const agent = initialDashboard.agents[0];
   await owner('/api/providers', 'POST', { apiKey: 'forbidden' }, 404);
   const personal = await owner('/api/agents', 'POST', { name: 'Personal smoke Agent', instructions: 'Use concrete examples.' });
   assert.equal(personal.source, 'personal');
-  assert.equal((await owner('/api/dashboard')).agents.length, 5);
-  assert.equal((await member('/api/dashboard')).agents.length, 4);
+  assert.equal((await owner('/api/dashboard')).agents.length, 6);
+  assert.equal((await member('/api/dashboard')).agents.length, 5);
   await member(`/api/agents/${personal.id}`, 'DELETE', undefined, 404);
   const { id } = await owner('/api/rooms', 'POST', { title: 'Demo acceptance', topic: 'A reproducible handover', mode: 'debate', agentIds: [agent.id, agent.id], joinAsParticipant: true, executionMode: 'live', options: { rounds: 2 } }, 201);
   await outsider(`/api/rooms/${id}`, 'GET', undefined, 404);
