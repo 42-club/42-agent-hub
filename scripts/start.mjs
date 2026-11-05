@@ -2,12 +2,14 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import { loadSharedAccountEnv } from "./shared-env.mjs";
+import { validateHubRuntime } from "./runtime-config.mjs";
 
 try { process.loadEnvFile(".env.local"); } catch (error) { if (error.code !== "ENOENT") throw error; }
 try { process.loadEnvFile(".env"); } catch (error) { if (error.code !== "ENOENT") throw error; }
-loadSharedAccountEnv();
-
 const mode = process.argv[2] === "start" ? "start" : "dev";
+process.env.NODE_ENV = mode === "dev" ? "development" : "production";
+loadSharedAccountEnv();
+validateHubRuntime();
 const port = process.env.PORT ?? "3000";
 const coordinatorPort = process.env.HUB_COORDINATOR_PORT ?? "4317";
 const token = randomBytes(32).toString("hex");

@@ -8,7 +8,7 @@ type Member = { id: string; userId?: string; displayName: string; email: string;
 type Invitation = { id: string; organization?: { name: string } };
 const roles: Record<string, string> = { owner: "所有者", admin: "管理员", member: "成员", viewer: "只读成员" };
 export function OrganizationMenu() {
-  const { organizations, activeOrganization, refresh } = useAuth();
+  const { organizations, activeOrganization, canCreateOrganization, refresh } = useAuth();
   const [open, setOpen] = useState(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -36,7 +36,7 @@ export function OrganizationMenu() {
         {activeOrganization && <section><h3><Users size={16} /> {activeOrganization.name} 的成员</h3><ul className="organization-members">{members.map((member) => <li key={member.userId || member.id}><span><strong>{member.displayName}</strong><small>{member.email}</small></span><span>{roles[member.role] || member.role}</span></li>)}</ul></section>}
         {activeOrganization && ["owner", "admin"].includes(activeOrganization.role) && <form onSubmit={invite}><label className="field">邀请成员<input name="email" type="email" placeholder="对方的账号邮箱" required /></label><button className="button secondary small" disabled={busy}>发送组织邀请</button></form>}
         {invitations.map((invitation) => <div className="organization-invitation" key={invitation.id}><span>{invitation.organization?.name} 邀请你加入</span><button className="button secondary small" disabled={busy} onClick={() => mutate(`/invitations/${invitation.id}/accept`)}>接受邀请</button></div>)}
-        <details open={!organizations.length}><summary>创建一个组织</summary><form className="create-organization" onSubmit={create}><label className="field">组织名称<input name="name" placeholder="比如：42 Club" maxLength={100} required /></label><label className="field">组织域名<input name="domain" placeholder="your-team.com" maxLength={253} required /></label><button className="button primary small" disabled={busy}><Plus size={15} />创建组织</button></form></details>
+        {canCreateOrganization ? <details open={!organizations.length}><summary>创建一个组织</summary><form className="create-organization" onSubmit={create}><label className="field">组织名称<input name="name" placeholder="比如：42 Club" maxLength={100} required /></label><label className="field">组织域名<input name="domain" placeholder="your-team.com" maxLength={253} required /></label><button className="button primary small" disabled={busy}><Plus size={15} />创建组织</button></form></details> : !organizations.length && <p className="form-hint">暂无可访问的组织。新账号验证邮箱后会自动创建默认组织；已有账号请联系管理员确认组织访问状态。</p>}
       </div>
     </Dialog>
   </>;

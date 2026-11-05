@@ -1,4 +1,5 @@
 import { ClubError, clubRequest, currentClubSession, setClubSession, type ClubSession } from "@/lib/club-service";
+import { accessPolicy } from "../../../../../scripts/access-policy.mjs";
 export const dynamic = "force-dynamic";
 async function handle(request: Request, context: { params: Promise<{ path?: string[] }> }) {
   const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -12,6 +13,16 @@ async function handle(request: Request, context: { params: Promise<{ path?: stri
     const uuid = "[0-9a-fA-F-]{36}";
     const allowed = request.method === "GET" ? !tail || new RegExp(`^${uuid}/members$`).test(tail) || tail === "invitations" : !tail || new RegExp(`^${uuid}/(switch|invitations)$`).test(tail) || new RegExp(`^invitations/${uuid}/(accept|reject)$`).test(tail);
     if (!allowed) return json({ error: "接口不存在" }, 404);
+    const policy = accessPolicy();
+    if (!tail && request.method === "GET") return json(session.organizations);
+    if (!tail && request.method === "POST" && !policy.canCreateOrganization) return json({ error: "注册完成后会自动创建默认组织，暂不支持手动创建更多组织。" }, 403);
+    if (tail && !tail.startsWith("invitations") && !session.organizations.some((org) => org.id === path[0])) return json({ error: "此组织不可访问" }, 403);
+    if (tail.startsWith("invitations")) {
+      const invitations = await clubRequest<Array<{ id: string; organizationId: string; organization?: { hubAccessEnabled?: boolean } }>>("/invitations", { token: session.token });
+      const visible = invitations.filter((invitation) => policy.allows(invitation.organization));
+      if (request.method === "GET") return json(visible);
+      if (!visible.some((invitation) => invitation.id === path[1])) return json({ error: "邀请不存在" }, 404);
+    }
     const endpoint = tail.startsWith("invitations") ? `/${tail}` : `/organizations${tail ? `/${tail}` : ""}`;
     const body = request.method === "GET" ? undefined : await request.json();
     const result = await clubRequest<ClubSession & { session?: ClubSession }>(endpoint, { token: session.token, method: request.method, body });

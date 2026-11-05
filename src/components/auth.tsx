@@ -9,13 +9,14 @@ import { api, Avatar, Dialog, ErrorNotice, Loading, errorMessage } from "./ui";
 
 type User = { id: string; email: string; profile: { display_name: string; avatar_url?: string | null } };
 type AuthMode = "login" | "register" | "reset";
-const AuthContext = createContext<{ user: User | null; organizations: Organization[]; activeOrganization: Organization | null; loading: boolean; openAuth: () => void; refresh: () => Promise<void>; logout: () => Promise<void> } | null>(null);
+const AuthContext = createContext<{ user: User | null; organizations: Organization[]; activeOrganization: Organization | null; canCreateOrganization: boolean; loading: boolean; openAuth: () => void; refresh: () => Promise<void>; logout: () => Promise<void> } | null>(null);
 export function useAuth() { const auth = useContext(AuthContext); if (!auth) throw new Error("Missing AuthProvider"); return auth; }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [activeOrganization, setActiveOrganization] = useState<Organization | null>(null);
+  const [canCreateOrganization, setCanCreateOrganization] = useState(false);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +24,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const channel = useRef<BroadcastChannel | null>(null);
   const refresh = useCallback(async () => {
     const sequence = ++sessionSequence.current;
-    try { const session = await api<{ user: User | null; organizations: Organization[]; activeOrganization: Organization | null }>("/api/auth/session"); if (sequence !== sessionSequence.current) return; setUser(session.user); setOrganizations(session.organizations); setActiveOrganization(session.activeOrganization); setError(null); }
+    try { const session = await api<{ user: User | null; organizations: Organization[]; activeOrganization: Organization | null; canCreateOrganization?: boolean }>("/api/auth/session"); if (sequence !== sessionSequence.current) return; setUser(session.user); setOrganizations(session.organizations); setActiveOrganization(session.activeOrganization); setCanCreateOrganization(session.canCreateOrganization ?? false); setError(null); }
     catch (error) { if (sequence === sessionSequence.current) { setUser(null); setOrganizations([]); setActiveOrganization(null); } throw error; }
     finally { if (sequence === sessionSequence.current) setLoading(false); }
   }, []);
@@ -41,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     catch (e) { setError(errorMessage(e)); }
   };
   const signedIn = async () => { await refresh(); channel.current?.postMessage("changed"); setOpen(false); };
-  return <AuthContext.Provider value={{ user, organizations, activeOrganization, loading, refresh, logout, openAuth: () => setOpen(true) }}>
+  return <AuthContext.Provider value={{ user, organizations, activeOrganization, canCreateOrganization, loading, refresh, logout, openAuth: () => setOpen(true) }}>
     {loading ? <main className="auth-entry"><Loading label="正在验证登录状态…" /></main> : user ? children : <main className="auth-entry">
       <section className="auth-entry-card" aria-labelledby="auth-entry-title">
         <header className="auth-entry-heading"><HubLogo /><p className="eyebrow">42 AGENT HUB</p><h1 id="auth-entry-title">登录后，入座圆桌</h1><p>与你的组织和 Agent，一起交流。</p></header>
@@ -81,7 +82,7 @@ export function AuthForm({ onSuccess }: { onSuccess: () => Promise<void> }) {
       const result = await api<{ resendAvailableAt?: string }>(`/api/auth/${mode === "reset" ? "forgot-password" : "resend-verification"}`, { method: "POST", body: JSON.stringify({ email: email.value }) });
       setCooldown(Math.max(60, Math.ceil((new Date(result.resendAvailableAt ?? Date.now()).getTime() - Date.now()) / 1000)));
       setNotice("如果邮箱符合验证条件，验证码将发送至收件箱。");
-    } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
+    } catch (e) { setError(errorMessage(e)); if (e && typeof e === "object" && "retryAfterSeconds" in e && typeof e.retryAfterSeconds === "number") setCooldown(e.retryAfterSeconds); } finally { setBusy(false); }
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(null); setNotice("");
@@ -97,7 +98,7 @@ export function AuthForm({ onSuccess }: { onSuccess: () => Promise<void> }) {
         if (mode === "reset") { switchMode("login"); setNotice("密码已更新，请重新登录。"); }
         else await onSuccess();
       }
-    } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
+    } catch (e) { setError(errorMessage(e)); if (e && typeof e === "object" && "retryAfterSeconds" in e && typeof e.retryAfterSeconds === "number") setCooldown(e.retryAfterSeconds); } finally { setBusy(false); }
   }
   return <form ref={form} onSubmit={submit} className="auth-form"><div className="modal-body">
     <div className="auth-welcome"><span className="auth-flower"><UserRound size={26} strokeWidth={1.5} /></span><h3>{mode === "login" ? "欢迎回来，给你留了一个位置" : mode === "register" ? "从认识你开始" : "找回你的圆桌席位"}</h3><p>使用 42 Agent 或已有的 42 Meeting 账号登录。</p></div>

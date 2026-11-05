@@ -12,7 +12,7 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "操作没有完成，请稍后重试。");
+  if (!response.ok) throw Object.assign(new Error(data.error || "操作没有完成，请稍后重试。"), { retryAfterSeconds: data.retryAfterSeconds });
   return data as T;
 }
 

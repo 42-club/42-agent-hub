@@ -4,6 +4,8 @@ import { parseEnv } from "node:util";
 
 // Only account settings cross the app boundary. Hub settings always take priority.
 export function loadSharedAccountEnv() {
+  // Deployment must use explicit project settings, never sibling developer files.
+  if (process.env.VERCEL || process.env.NODE_ENV === "production" || process.env.HUB_LOAD_SHARED_ENV !== "true") return;
   const directory = resolve(process.env.CLUB_ENV_DIR || "../42-agent-service");
   const names = ["CLUB_SERVICE_URL", "HUB_SERVICE_TOKEN"];
   for (const file of [".env.local", ".env"]) {

@@ -2,6 +2,8 @@
 
 与真人和 Agent 围桌讨论、玩谁是卧底或狼人杀。界面沿用纸色、鼠尾草绿和圆角风格。
 
+当前接手分支的实现与验收状态见 [P0 交付记录](docs/p0-demo-readiness.md)。本地已补齐 Service 协议；以下历史线上记录不代表本分支已发布，也不证明现有生产数据库兼容新增迁移。
+
 ## 线上服务
 
 - Hub：https://42-agent-hub.vercel.app
@@ -12,6 +14,8 @@
 四个项目均已关联 42 Club 的 Vercel。数据库统一使用共享后端关联的 Supabase 项目；前端不再连接各自旧的 Auth 或业务数据库。数据库迁移由同级 `42-agent-service/supabase/migrations` 管理。
 
 ## 账号、组织与数据
+
+完成邮箱验证后自动创建默认组织并加入数据库白名单；已有组织导入、存量账号补建和发布顺序见 [默认组织与准入升级](docs/organization-onboarding.md)。`HUB_ALLOWED_ORGANIZATION_IDS` 与 `HUB_ACCESS_MODE` 不再使用。
 
 登录、注册、邮箱验证、找回密码、组织、成员和邀请统一使用 `42-agent-service` 原有 API。已有 Meeting / Admin 的已验证账号已按邮箱合并到唯一成员 ID，保留原账号密码的 bcrypt 验证器；修改或重置密码后，旧验证器与旧会话失效。运行时不依赖旧 Supabase Auth。
 
@@ -38,7 +42,7 @@ pnpm run dev
 
 `pnpm run dev` 启动 Next.js 和本机执行器。生产构建为 `pnpm run build`；本机常驻部署可使用 `pnpm start`。默认 Web 端口 3000，执行器端口 4317。
 
-Hub 从 `../42-agent-service/.env.local`、`.env` 复用缺失的 `CLUB_SERVICE_URL` / `HUB_SERVICE_TOKEN`。Meeting / Admin 也从同一目录读取共享地址、组织和各自独立的服务凭证。项目自身和进程环境优先；可用 `CLUB_ENV_DIR` 调整目录。
+Hub 默认要求显式配置 `CLUB_SERVICE_URL` / `HUB_SERVICE_TOKEN`。仅本地开发设置 `HUB_LOAD_SHARED_ENV=true` 后，才从 `../42-agent-service/.env.local`、`.env` 复用缺失值；可用 `CLUB_ENV_DIR` 调整目录。生产和 Vercel 一律不读取同级开发配置。
 
 共享后端配置 `CLUB_SUPABASE_URL`、`CLUB_SUPABASE_SECRET_KEY`、`CLUB_ORGANIZATION_ID`、`CLUB_MEETING_TOKEN`、`CLUB_RECRUITING_TOKEN`、`HUB_SERVICE_TOKEN`，以及原有 PostgreSQL、JWT 和加密配置。三个机器凭证独立生成，前端浏览器不可见。Hub 不需要数据库密码或 JWT 签名密钥。
 
@@ -49,6 +53,10 @@ Hub 从 `../42-agent-service/.env.local`、`.env` 复用缺失的 `CLUB_SERVICE_
 在 Vercel 项目启用 `ENABLE_EXPERIMENTAL_COREPACK=1`，让 `packageManager` 固定 pnpm 10.34.5。清除旧的 npm Install/Build Command 覆盖；构建命令使用 `pnpm run build`（包含 Worker 打包），并核对构建日志中的 pnpm 版本。先在独立预发布环境验证 Workflow 和 Worker，再发布生产。本次迁移不需要数据库变更。
 
 Vercel 部署配置 `HUB_EXECUTION=workflow`、`CLUB_SERVICE_URL`、`HUB_SERVICE_TOKEN`。Workflow 每一步执行一个游戏阶段，通过共享数据库执行锁和版本校验保护状态；轮到真人时结束当前工作流，真人提交后启动后续工作流，因此无需另备常驻服务器。
+
+Service Preview 启用 Vercel Authentication 时，在 Hub 的 Preview 环境配置 `CLUB_SERVICE_PROTECTION_BYPASS`，值取自 **Service 项目**的 Deployment Protection → Protection Bypass for Automation。账号和共享存储请求会在服务端发送 `x-vercel-protection-bypass`；不读取 Hub 自己的 `VERCEL_AUTOMATION_BYPASS_SECRET`。`CLUB_SERVICE_URL` 必须包含 `/api/v1`。密钥不可使用 `NEXT_PUBLIC_` 前缀、放进 URL 或提交仓库；更新后重新部署 Hub Preview。未配置时不新增该请求头，生产可继续使用公开的 Service 生产域名。
+
+`verify:deployment` 和 `verify:live-demo` 同样读取上述 Service 凭证。如果待验收的 Hub 自身也受部署保护，另在执行脚本的本机环境配置 `HUB_VERIFY_PROTECTION_BYPASS`，值必须来自 **Hub 项目**；仅通过 Hub 的部署保护后，脚本仍检查匿名业务请求返回 401。Service 凭证不会发送给 Hub。
 
 每个 Agent 使用打包的独立 Node.js 子进程。每次模型调用前记录执行尝试；未知结果或执行中断不会自动重复计费请求。需要房主处理或继续时，界面显示对应状态。默认模型调用期限 180 秒，Vercel 函数上限 300 秒。
 
@@ -72,6 +80,6 @@ pnpm test
 pnpm run build
 ```
 
-独立测试库可运行 `scripts/verify-shared-backend.mjs` 和 `scripts/verify-human-games.mjs`。固定验证码仅用于 `NODE_ENV=test`，不能配置到生产。
+先在 Service 和 Hub 各执行 `pnpm run build`，再在 Hub 执行 `pnpm run test:demo`，会自动创建内存数据库和临时本地服务，通过 Next 生产构建验证注册、邀请制、两轮真人讨论和暂停/继续/结束；不接受远程目标、不调用收费模型。`scripts/verify-shared-backend.mjs` 是该命令的兼容入口。隐藏身份玩法使用 `pnpm test` 中的隔离测试。固定验证码仅用于 `NODE_ENV=test`，不能配置到生产。
 
 实际数据迁移、线上验证和回滚边界见 [验证记录](docs/shared-account-verification.md) 与共享后端的 `docs/club-consolidation.md`。原本地 Hub 的 15 场圆桌和 13 个 Agent 已导入现有 42.ai 组织，保留原 ID；源 SQLite 保留备份。
