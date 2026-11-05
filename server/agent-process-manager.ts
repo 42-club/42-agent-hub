@@ -2,7 +2,8 @@ import { fork, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PlatformModel, ModelAttempt } from "./platform-models";
+import type { PlatformModel, ModelAttempt, ModelRetryPolicy } from "./platform-models";
+import { modelRetryPolicy } from "../scripts/model-retry-config.mjs";
 import type { Participant, ToolSpec } from "../src/domain/types";
 
 export type AgentExecutionErrorCode = "timeout" | "authentication" | "rate_limit" | "invalid_request" | "insufficient_credits" | "model_unavailable" | "service_unavailable" | "provider" | "missing_action" | "cancelled" | "process_exit" | "models_unavailable" | "model_outcome_unknown" | "invalid_speech";
@@ -40,6 +41,7 @@ export interface AgentRunInput {
   roomId: string;
   participant: Participant;
   models?: PlatformModel[];
+  retryPolicy?: ModelRetryPolicy;
   provider?: { kind: "openrouter" | "openai-compatible"; baseUrl: string; apiKey: string };
   executionMode: "live" | "demo";
   phaseVersion: number;
@@ -55,6 +57,7 @@ export interface WorkerRun extends Omit<AgentRunInput, "onAction" | "onModelAtte
   type: "run";
   requestId: string;
   sessionDirectory: string;
+  modelDeadlineAt: number;
 }
 export type WorkerCommand = WorkerRun
   | { type: "cancel"; requestId: string }
@@ -105,6 +108,8 @@ export class AgentProcessManager {
     if (this.closed) throw new Error("Agent 进程管理器已关闭");
     if (input.signal?.aborted) throw abortError();
     if (!input.tools.some((tool) => tool.name === input.requiredTool)) throw new Error("本轮必需工具未授权");
+    const retryPolicy = input.retryPolicy ?? modelRetryPolicy();
+    const modelDeadlineAt = Date.now() + Math.min(retryPolicy.budgetMs, Math.max(1, this.timeoutMs - 5000));
     const entry = this.getOrSpawn(input.roomId, input.participant.id);
     if (entry.active || entry.closing) throw new Error("该 Agent 已有运行中的行动");
     const requestId = randomUUID();
@@ -133,7 +138,7 @@ export class AgentProcessManager {
       this.status(entry, "thinking");
       this.send(entry, {
         type: "run", requestId, roomId: input.roomId, participant: input.participant,
-        models: input.models, provider: input.provider, executionMode: input.executionMode, phaseVersion: input.phaseVersion,
+        models: input.models, retryPolicy, modelDeadlineAt, provider: input.provider, executionMode: input.executionMode, phaseVersion: input.phaseVersion,
         prompt: input.prompt, tools: input.tools, requiredTool: input.requiredTool,
         sessionDirectory: join(resolve(this.options.dataDir), "agents", this.key(input.roomId, input.participant.id)),
       });

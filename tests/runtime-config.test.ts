@@ -11,6 +11,10 @@ test("invalid model provider priority is rejected by runtime and preflight confi
   assert.throws(() => validateHubRuntime({ NODE_ENV: "test", HUB_MODEL_PROVIDER_PRIORITY: "unknown-secret-value" }), (error: unknown) => error instanceof Error && /HUB_MODEL_PROVIDER_PRIORITY/.test(error.message) && !error.message.includes("unknown-secret-value"));
 });
 
+test("invalid retry settings are rejected by runtime and deployment preflight validation", () => {
+  assert.throws(() => validateHubRuntime({ NODE_ENV: "test", HUB_MODEL_MAX_ATTEMPTS: "0" }), /HUB_MODEL_MAX_ATTEMPTS/);
+});
+
 test("database admission fails closed and follows fresh account-service metadata", () => {
   const policy = accessPolicy();
   assert.equal(policy.mode, "self-service");

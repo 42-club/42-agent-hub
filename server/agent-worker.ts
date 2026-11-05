@@ -30,6 +30,7 @@ function send(message: WorkerEvent) {
 
 function classifyExecutionError(error: unknown, cancelled: boolean): AgentExecutionErrorCode {
   if (cancelled) return "cancelled";
+  if (error && typeof error === "object" && "code" in error && error.code === "invalid_request") return "invalid_request";
   if (error && typeof error === "object" && "code" in error && error.code === "invalid_speech") return "invalid_speech";
   if (error && typeof error === "object" && "code" in error && (error.code === "models_unavailable" || error.code === "model_outcome_unknown")) return error.code;
   const details = error !== null && typeof error === "object" ? error as { name?: unknown; message?: unknown; status?: unknown; statusCode?: unknown; code?: unknown } : {};
@@ -106,7 +107,7 @@ async function execute(command: WorkerRun, signal: AbortSignal) {
   } else if (command.models) {
     source = new PriorityModelClient(command.models, async (attempt: ModelAttempt) => {
       await action(command, "__model_attempt__", attempt as unknown as Record<string, unknown>, `${attempt.id}:${attempt.status}`, signal);
-    });
+    }, fetch, { policy: command.retryPolicy, deadlineAt: command.modelDeadlineAt });
   } else if (command.provider) {
     source = new OpenRouterModelClient({ apiKey: command.provider.apiKey, model: command.participant.modelId, baseUrl: command.provider.baseUrl, appName: "42 Agent Hub", fetch: boundedFetch });
   } else throw new Error("No model routing configured");

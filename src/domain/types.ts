@@ -152,6 +152,7 @@ export interface VotingView {
 }
 
 export interface RoomView extends RoomSummary {
+  modelRecovery?: "retrying" | "fallback";
   readOnly?: boolean;
   executionGeneration?: number;
   self?: {

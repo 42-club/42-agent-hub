@@ -1,4 +1,5 @@
 import { parseModelProviderPriority } from './model-provider-priority.mjs';
+import { modelRetryPolicy } from './model-retry-config.mjs';
 
 // Runtime validation, shared by the launcher and server. Build does not need secrets.
 export function deploymentEnvironment(env = process.env) {
@@ -21,6 +22,7 @@ export function serviceUrl(env = process.env) {
 
 export function validateHubRuntime(env = process.env) {
   parseModelProviderPriority(env.HUB_MODEL_PROVIDER_PRIORITY);
+  modelRetryPolicy(env);
   const environment = deploymentEnvironment(env);
   const url = serviceUrl(env);
   const token = env.HUB_SERVICE_TOKEN?.trim();

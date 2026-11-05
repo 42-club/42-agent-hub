@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { fork, spawn, spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -15,12 +14,27 @@ let diagnostics = '';
 let modelServer;
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
 const port = async () => {
-  const server = createServer(); await new Promise((done) => server.listen(0, '127.0.0.1', done));
-  const value = server.address().port; await new Promise((done) => server.close(done)); return value;
+  // Windows can allocate ports such as 10080 that fetch refuses even on localhost.
+  // Probe with the same HTTP client before assigning a port to a fixture service.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const server = createHttpServer((_request, response) => { response.writeHead(204); response.end(); });
+    await new Promise((done) => server.listen(0, '127.0.0.1', done));
+    const value = server.address().port;
+    try {
+      await fetch(`http://127.0.0.1:${value}`, { signal: AbortSignal.timeout(1000) });
+      return value;
+    } catch {
+      // Pick another port; cleanup runs before the next attempt.
+    } finally {
+      server.closeAllConnections();
+      await new Promise((done) => server.close(done));
+    }
+  }
+  throw new Error('No fetch-accessible local fixture port available');
 };
 const secret = () => randomBytes(32).toString('hex');
 const env = { ...process.env, NODE_ENV: 'test', DATABASE_DRIVER: 'sqljs', DATABASE_PATH: ':memory:', DB_SYNCHRONIZE: 'false', JWT_SECRET: secret(), APP_ENCRYPTION_KEY: secret(), AUTH_EMAIL_RATE_LIMIT_SECRET: secret(), HUB_SERVICE_TOKEN: secret(), EMAIL_VERIFICATION_TEST_CODE: '424242', AUTH_EMAIL_RATE_LIMIT_DISABLED: 'true', AUTH_ATTEMPT_RATE_LIMIT_DISABLED: 'true' };
-for (const key of ['HUB_MODEL_PROVIDER_PRIORITY', 'OPENROUTER_ENABLED', 'DEEPSEEK_ENABLED', 'VERCEL', 'VERCEL_ENV', 'HUB_DEPLOYMENT_ENV', 'DATABASE_URL', 'RESEND_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_BASE_URL', 'OPENROUTER_MODEL', 'DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'DEEPSEEK_MODEL', 'HUB_STORAGE', 'HUB_EXECUTION', 'HUB_TRUSTED_CLIENT_IP_HEADER', 'CLUB_SERVICE_PROTECTION_BYPASS', 'HUB_VERIFY_PROTECTION_BYPASS', 'VERCEL_AUTOMATION_BYPASS_SECRET']) delete env[key];
+for (const key of ['HUB_MODEL_MAX_ATTEMPTS', 'HUB_MODEL_RETRY_BASE_DELAY_MS', 'HUB_MODEL_REQUEST_TIMEOUT_MS', 'HUB_MODEL_RETRY_BUDGET_MS', 'HUB_MODEL_PROVIDER_PRIORITY', 'OPENROUTER_ENABLED', 'DEEPSEEK_ENABLED', 'VERCEL', 'VERCEL_ENV', 'HUB_DEPLOYMENT_ENV', 'DATABASE_URL', 'RESEND_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_BASE_URL', 'OPENROUTER_MODEL', 'DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'DEEPSEEK_MODEL', 'HUB_STORAGE', 'HUB_EXECUTION', 'HUB_TRUSTED_CLIENT_IP_HEADER', 'CLUB_SERVICE_PROTECTION_BYPASS', 'HUB_VERIFY_PROTECTION_BYPASS', 'VERCEL_AUTOMATION_BYPASS_SECRET']) delete env[key];
 function observe(child) {
   children.push(child);
   for (const stream of [child.stdout, child.stderr]) stream?.on('data', (data) => { diagnostics = (diagnostics + data).slice(-10000); });

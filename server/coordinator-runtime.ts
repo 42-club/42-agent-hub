@@ -9,6 +9,7 @@ import { canIdentifyFailedParticipant, displayRoomError, participantFailureLabel
 import { AgentProcessManager } from "./agent-process-manager";
 import { availableAgents, isPersonalAgent, systemAgents } from "./agent-catalog";
 import { platformModels } from "./platform-models";
+import { publicModelRecovery } from "./model-recovery";
 import { advanceGame, applyAction, createGame, getDecision, getPendingParticipantIds, projectGame, projectSelf } from "../src/domain/engine";
 import { agentSchema, controlSchema, participantActionSchema, roomSchema } from "../src/domain/validation";
 import type { AgentEntity, Participant, RoomSummary, RoomView } from "../src/domain/types";
@@ -90,7 +91,7 @@ function view(room: RoomRecord, userId?: string): RoomView {
   const { civilianWord: _civilianWord, undercoverWord: _undercoverWord, ...options } = room.input.options;
   return { ...summary(room), executionGeneration: room.executionGeneration ?? 0, ...projection, privateMessages: ownSeat ? room.game.events.filter((event) => ["private", "wolves"].includes(event.visibility) && event.recipientIds.includes(ownSeat.id)) : [],
     ...(ownSeat ? { self: { ...(room.status === "waiting" ? { participantId: ownSeat.id, phaseVersion: 0 } : projectSelf(room.game, ownSeat.id)), tools: room.status === "running" ? projectSelf(room.game, ownSeat.id).tools : [] } } : {}),
-    readOnly, canControl: !readOnly && Boolean(userId && (!room.ownerId || room.ownerId === userId)), options, error: displayRoomError(room),
+    modelRecovery: publicModelRecovery(room), readOnly, canControl: !readOnly && Boolean(userId && (!room.ownerId || room.ownerId === userId)), options, error: displayRoomError(room),
     participants: projection.participants.map(({ agentSnapshot: _privatePersona, ...participant }) => {
       if (room.status !== "running") return { ...participant, status: !participant.alive ? "eliminated" : room.status === "completed" ? "done" : "idle" };
       // Public process/activity metadata is available for debate only. Night actors are secret.
@@ -189,6 +190,7 @@ async function runRoom(id: string, signal: AbortSignal, expectedGeneration: numb
               onModelAttempt: async (attempt) => {
                 await commit((latest) => {
                   if (latest.cloudAttempt?.owner !== owner) throw new DOMException("Execution superseded", "AbortError");
+                  if (attempt.status === "started" && (latest.game.phaseVersion !== snapshot.game.phaseVersion || !getPendingParticipantIds(latest.game).includes(participant.id))) throw new DOMException("Decision already resolved", "AbortError");
                   const attempts = latest.modelAttempts ??= [];
                   const previous = attempts.findIndex((item) => item.id === attempt.id);
                   const record = { ...attempt, participantId: participant.id, phaseVersion: snapshot.game.phaseVersion, at: new Date().toISOString() };
@@ -220,7 +222,7 @@ async function runRoom(id: string, signal: AbortSignal, expectedGeneration: numb
           if (result.status !== "rejected") return [];
           const labels: Record<string, string> = {
             invalid_speech: "Agent 暂时未能生成合适的对话",
-            models_unavailable: "当前 AI 服务暂不可用", model_outcome_unknown: "模型请求结果未能确认",
+            models_unavailable: "已尝试恢复，模型服务仍暂不可用", model_outcome_unknown: "模型请求结果未能确认",
             timeout: "请求超时", authentication: "模型服务认证失败", rate_limit: "服务商限流，请稍后重试",
             invalid_request: "上游拒绝请求参数或工具格式", insufficient_credits: "模型服务余额不足",
             model_unavailable: "模型暂不可用", service_unavailable: "上游模型服务暂时不可用",
