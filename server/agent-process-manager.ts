@@ -2,10 +2,13 @@ import { fork, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { PlatformModel, ModelAttempt } from "./platform-models";
 import type { Participant, ToolSpec } from "../src/domain/types";
 
-export type AgentExecutionErrorCode = "timeout" | "authentication" | "rate_limit" | "invalid_request" | "insufficient_credits" | "model_unavailable" | "service_unavailable" | "provider" | "missing_action" | "cancelled" | "process_exit";
+export type AgentExecutionErrorCode = "timeout" | "authentication" | "rate_limit" | "invalid_request" | "insufficient_credits" | "model_unavailable" | "service_unavailable" | "provider" | "missing_action" | "cancelled" | "process_exit" | "models_unavailable" | "model_outcome_unknown";
 const ERROR_MESSAGES: Record<AgentExecutionErrorCode, string> = {
+  models_unavailable: "当前 AI 服务暂不可用，本场进度已保留，请稍后重试。",
+  model_outcome_unknown: "模型请求结果未能确认，本场进度已保留，请稍后重试。",
   timeout: "Agent 响应超时，已确认的行动已保留，请稍后继续",
   authentication: "模型连接认证失败，请检查 API Key 和模型访问权限",
   rate_limit: "模型服务请求过于频繁，请稍后继续",
@@ -35,17 +38,19 @@ export function resolveAgentTimeoutMs(value: string | undefined = process.env.HU
 export interface AgentRunInput {
   roomId: string;
   participant: Participant;
-  provider: { kind: "openrouter" | "openai-compatible"; baseUrl: string; apiKey: string };
+  models?: PlatformModel[];
+  provider?: { kind: "openrouter" | "openai-compatible"; baseUrl: string; apiKey: string };
   executionMode: "live" | "demo";
   phaseVersion: number;
   prompt: string;
   tools: ToolSpec[];
   requiredTool: string;
   onAction: (name: string, args: Record<string, unknown>, actionId: string) => Promise<unknown>;
+  onModelAttempt?: (attempt: ModelAttempt) => Promise<void>;
   signal?: AbortSignal;
 }
 
-export interface WorkerRun extends Omit<AgentRunInput, "onAction" | "signal"> {
+export interface WorkerRun extends Omit<AgentRunInput, "onAction" | "onModelAttempt" | "signal"> {
   type: "run";
   requestId: string;
   sessionDirectory: string;
@@ -55,6 +60,7 @@ export type WorkerCommand = WorkerRun
   | { type: "shutdown" }
   | { type: "action_result"; requestId: string; actionId: string; ok: boolean; result?: unknown };
 export type WorkerEvent =
+  | { type: "model_attempt"; requestId: string; actionId: string; attempt: ModelAttempt }
   | { type: "action"; requestId: string; actionId: string; name: string; args: Record<string, unknown> }
   | { type: "done"; requestId: string }
   | { type: "failed"; requestId: string; code: AgentExecutionErrorCode };
@@ -126,7 +132,7 @@ export class AgentProcessManager {
       this.status(entry, "thinking");
       this.send(entry, {
         type: "run", requestId, roomId: input.roomId, participant: input.participant,
-        provider: input.provider, executionMode: input.executionMode, phaseVersion: input.phaseVersion,
+        models: input.models, provider: input.provider, executionMode: input.executionMode, phaseVersion: input.phaseVersion,
         prompt: input.prompt, tools: input.tools, requiredTool: input.requiredTool,
         sessionDirectory: join(resolve(this.options.dataDir), "agents", this.key(input.roomId, input.participant.id)),
       });
@@ -202,6 +208,16 @@ export class AgentProcessManager {
     }
     if (message.type === "failed") {
       active.finish(new AgentExecutionError(Object.hasOwn(ERROR_MESSAGES, message.code) ? message.code : "provider"));
+      return;
+    }
+    if (message.type === "model_attempt") {
+      if (entry.closing || active.input.signal?.aborted) return;
+      try {
+        const attempt = message.attempt;
+        if (!active.input.models?.some((model) => model.provider === attempt.provider && model.modelId === attempt.modelId)) throw new Error("Invalid model attempt");
+        await active.input.onModelAttempt?.(attempt);
+        this.send(entry, { type: "action_result", requestId: active.requestId, actionId: message.actionId, ok: true });
+      } catch { this.send(entry, { type: "action_result", requestId: active.requestId, actionId: message.actionId, ok: false }); }
       return;
     }
     if (message.type !== "action" || entry.closing || active.input.signal?.aborted) return;

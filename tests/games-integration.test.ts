@@ -51,7 +51,7 @@ test("both secret-role games run through independent demo core workers to a dura
     child.stderr?.on("data", (chunk) => { logs += chunk; });
     await until(async () => { try { return (await fetch(`${base}/health`, { headers: { authorization: `Bearer ${token}` } })).ok; } catch { if (child?.exitCode !== null) throw new Error(logs); return false; } }, Boolean, 12_000);
     const dashboard = await api<DashboardData>("/api/dashboard");
-    assert.ok(dashboard.providers.every((provider) => !provider.configured));
+    assert.equal("providers" in dashboard, false);
     const undercoverWord = "SECRET_SPY_TEST_402";
     const civilianWord = "SECRET_CIV_TEST_901";
     const rooms = await Promise.all(["undercover", "werewolf"].map(async (mode) => {

@@ -55,8 +55,8 @@ test("coordinator persists a multi-process round, resumes after restart, and nev
     let dashboard = await api<DashboardData>("/api/dashboard");
     assert.equal(dashboard.agents.length, 4);
     const key = "local-test-secret-must-not-leak";
-    await api(`/api/providers/${dashboard.providers[0].id}`, "PUT", { name: "Test connection", kind: "openrouter", baseUrl: "https://openrouter.ai/api/v1", apiKey: key });
     dashboard = await api<DashboardData>("/api/dashboard");
+    assert.equal("providers" in dashboard, false);
     assert.equal(JSON.stringify(dashboard).includes(key), false);
     const { id } = await api<{ id: string }>("/api/rooms", "POST", { title: "重启恢复测试", topic: "好问题比好答案更重要吗", mode: "debate", agentIds: [dashboard.agents[0].id, dashboard.agents[0].id, dashboard.agents[1].id, dashboard.agents[2].id], executionMode: "demo", options: { ...DEFAULT_OPTIONS, rounds: 3 } });
     const initial = await api<RoomView>(`/api/rooms/${id}`);

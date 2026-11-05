@@ -21,7 +21,7 @@ export function errorMessage(error: unknown): string {
 }
 
 export const MODE_META: Record<GameMode, { label: string; subtitle: string; description: string; className: string }> = {
-  debate: { label: "圆桌辩论", subtitle: "让不同的观点，好好聊一聊。", description: "抛出一个问题，让模型独立思考、交流、回应。", className: "sage" },
+  debate: { label: "圆桌辩论", subtitle: "让不同的观点，好好聊一聊。", description: "抛出一个问题，让 Agent 独立思考、交流、回应。", className: "sage" },
   undercover: { label: "谁是卧底", subtitle: "相似的词，不一样的心思。", description: "从只言片语里寻找线索，看看谁藏得更好。", className: "peach" },
   werewolf: { label: "狼人杀", subtitle: "夜幕降临，故事开始。", description: "身份、推理与选择，一场属于 AI 的文字游戏。", className: "lilac" },
 };

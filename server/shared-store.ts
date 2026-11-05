@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { AgentEntity, ProviderConnection } from "../src/domain/types";
+import type { StoredAgent, ProviderConnection } from "../src/domain/types";
 import type { RoomRecord } from "./store";
 import { deploymentEnvironment, validateHubRuntime } from "../scripts/runtime-config.mjs";
 import { ServiceRequestError, serviceRequest } from "../scripts/service-request.mjs";
 
 type Provider = ProviderConnection & { apiKey: string; organizationId: string };
-export type RecordRow = { id: string; organizationId: string; kind: "room" | "agent" | "provider"; version: number; data: RoomRecord | AgentEntity | Provider };
+export type RecordRow = { id: string; organizationId: string; kind: "room" | "agent" | "provider"; version: number; data: RoomRecord | StoredAgent | Provider };
 export class StorageError extends Error {
   constructor(readonly kind: "network" | "permission" | "conflict" | "storage", readonly status = 503, message?: string) {
     super(message ?? (kind === "conflict" ? "共享状态已变化 (409)，请重新读取后重试。" : kind === "permission" ? "共享存储拒绝访问，请检查环境和权限配置。" : "共享存储暂时不可用，已确认的行动保留。请稍后重试。"));
@@ -127,9 +127,9 @@ export class SharedHubStore {
     return data as T;
   }
   saveRoom(room: RoomRecord, leaseOwner?: string) { this.save("room", room, leaseOwner); }
-  listAgents() { return this.values<AgentEntity>("agent"); }
-  getAgent(id: string) { return this.readRecord<AgentEntity>(id, "agent"); }
-  saveAgent(agent: AgentEntity) { this.save("agent", agent); }
+  listAgents() { return this.values<StoredAgent>("agent"); }
+  getAgent(id: string) { return this.readRecord<StoredAgent>(id, "agent"); }
+  saveAgent(agent: StoredAgent) { this.save("agent", agent); }
   deleteAgent(id: string) { this.remove(id); }
   listProviders(): ProviderConnection[] { return this.values<Provider>("provider").map(({ apiKey: _key, ...provider }) => provider); }
   deleteProvider(id: string) { this.remove(id); }

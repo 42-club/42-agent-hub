@@ -3,6 +3,7 @@ import { fork, spawn, spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 
@@ -11,6 +12,7 @@ const serviceDirectory = resolve(process.env.HUB_SERVICE_SOURCE || '../42-agent-
 const directory = await mkdtemp(join(tmpdir(), 'hub-smoke-'));
 const children = [];
 let diagnostics = '';
+let modelServer;
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
 const port = async () => {
   const server = createServer(); await new Promise((done) => server.listen(0, '127.0.0.1', done));
@@ -18,7 +20,7 @@ const port = async () => {
 };
 const secret = () => randomBytes(32).toString('hex');
 const env = { ...process.env, NODE_ENV: 'test', DATABASE_DRIVER: 'sqljs', DATABASE_PATH: ':memory:', DB_SYNCHRONIZE: 'false', JWT_SECRET: secret(), APP_ENCRYPTION_KEY: secret(), AUTH_EMAIL_RATE_LIMIT_SECRET: secret(), HUB_SERVICE_TOKEN: secret(), EMAIL_VERIFICATION_TEST_CODE: '424242', AUTH_EMAIL_RATE_LIMIT_DISABLED: 'true', AUTH_ATTEMPT_RATE_LIMIT_DISABLED: 'true' };
-for (const key of ['VERCEL', 'VERCEL_ENV', 'HUB_DEPLOYMENT_ENV', 'DATABASE_URL', 'RESEND_API_KEY', 'OPENROUTER_API_KEY', 'HUB_STORAGE', 'HUB_EXECUTION', 'HUB_TRUSTED_CLIENT_IP_HEADER', 'CLUB_SERVICE_PROTECTION_BYPASS', 'HUB_VERIFY_PROTECTION_BYPASS', 'VERCEL_AUTOMATION_BYPASS_SECRET']) delete env[key];
+for (const key of ['VERCEL', 'VERCEL_ENV', 'HUB_DEPLOYMENT_ENV', 'DATABASE_URL', 'RESEND_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_BASE_URL', 'OPENROUTER_MODEL', 'DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'DEEPSEEK_MODEL', 'HUB_STORAGE', 'HUB_EXECUTION', 'HUB_TRUSTED_CLIENT_IP_HEADER', 'CLUB_SERVICE_PROTECTION_BYPASS', 'HUB_VERIFY_PROTECTION_BYPASS', 'VERCEL_AUTOMATION_BYPASS_SECRET']) delete env[key];
 function observe(child) {
   children.push(child);
   for (const stream of [child.stdout, child.stderr]) stream?.on('data', (data) => { diagnostics = (diagnostics + data).slice(-10000); });
@@ -61,9 +63,20 @@ try {
   assert.ok(organizationId, 'Verification must create and select a default organization');
   const organization = { session: sessions[0] };
   await backend(`/organizations/${organizationId}/invitations`, 'POST', { email: emails[1] }, 201, auth(organization.session));
+  modelServer = createHttpServer(async (request, response) => {
+    assert.equal(request.url, '/chat/completions');
+    let raw = ''; for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    assert.deepEqual(body.thinking, { type: 'disabled' });
+    const tool = body.tools.find((item) => item.function.name === 'send_group_message');
+    assert.ok(tool);
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: randomUUID(), type: 'function', function: { name: tool.function.name, arguments: JSON.stringify({ channelId: 'public', content: 'Isolated mock provider response' }) } }] } }] }));
+  });
+  await new Promise((done) => modelServer.listen(0, '127.0.0.1', done));
   const webPort = await port(), coordinatorPort = await port();
-  const hubEnv = { ...env, NODE_ENV: 'production', HUB_DEPLOYMENT_ENV: 'development', CLUB_SERVICE_URL: serviceBase, HUB_INTERNAL_TOKEN: secret(), HUB_COORDINATOR_URL: `http://127.0.0.1:${coordinatorPort}`, HUB_COORDINATOR_PORT: String(coordinatorPort), HUB_DATA_DIR: directory };
-  observe(spawn(process.execPath, ['--import', 'tsx', 'server/coordinator.ts'], { env: hubEnv, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }));
+  const hubEnv = { ...env, NODE_ENV: 'production', HUB_DEPLOYMENT_ENV: 'development', CLUB_SERVICE_URL: serviceBase, HUB_INTERNAL_TOKEN: secret(), HUB_COORDINATOR_URL: `http://127.0.0.1:${coordinatorPort}`, HUB_COORDINATOR_PORT: String(coordinatorPort), HUB_DATA_DIR: directory, DEEPSEEK_API_KEY: secret(), DEEPSEEK_MODEL: 'isolated-mock', DEEPSEEK_BASE_URL: `http://127.0.0.1:${modelServer.address().port}` };
+  observe(spawn(process.execPath, ['--import', 'tsx', 'server/coordinator.ts'], { env: { ...hubEnv, NODE_ENV: 'test' }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }));
   observe(spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', String(webPort)], { env: hubEnv, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }));
   const base = `http://127.0.0.1:${webPort}`;
   await until(async () => { try { return (await fetch(`${base}/api/auth/session`, { signal: AbortSignal.timeout(3000) })).ok; } catch { return false; } }, Boolean);
@@ -80,9 +93,17 @@ try {
   assert.ok(outsiderSession.activeOrganization);
   assert.notEqual(outsiderSession.activeOrganization.id, organizationId);
   await outsider(`/api/organizations/${organizationId}/switch`, 'POST', {}, 403);
-  const provider = await owner('/api/providers', 'POST', { name: 'Smoke demo', kind: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1' });
-  const agent = await owner('/api/agents', 'POST', { providerId: provider.id, vendor: 'OpenAI', modelId: 'smoke-model', modelName: 'Demo Agent' });
-  const { id } = await owner('/api/rooms', 'POST', { title: 'Demo acceptance', topic: 'A reproducible handover', mode: 'debate', agentIds: [agent.id, agent.id], joinAsParticipant: true, executionMode: 'demo', options: { rounds: 2 } }, 201);
+  const initialDashboard = await owner('/api/dashboard');
+  assert.equal(initialDashboard.agents.length, 4);
+  assert.equal('providers' in initialDashboard, false);
+  const agent = initialDashboard.agents[0];
+  await owner('/api/providers', 'POST', { apiKey: 'forbidden' }, 404);
+  const personal = await owner('/api/agents', 'POST', { name: 'Personal smoke Agent', instructions: 'Use concrete examples.' });
+  assert.equal(personal.source, 'personal');
+  assert.equal((await owner('/api/dashboard')).agents.length, 5);
+  assert.equal((await member('/api/dashboard')).agents.length, 4);
+  await member(`/api/agents/${personal.id}`, 'DELETE', undefined, 404);
+  const { id } = await owner('/api/rooms', 'POST', { title: 'Demo acceptance', topic: 'A reproducible handover', mode: 'debate', agentIds: [agent.id, agent.id], joinAsParticipant: true, executionMode: 'live', options: { rounds: 2 } }, 201);
   await outsider(`/api/rooms/${id}`, 'GET', undefined, 404);
   const control = async (action, roomId = id) => {
     const room = await owner(`/api/rooms/${roomId}`);
@@ -98,7 +119,7 @@ try {
   const completed = await until(() => owner(`/api/rooms/${id}`), (r) => r.status === 'completed');
   assert.equal(completed.events.filter((e) => e.type === 'message').length, 6);
   assert.equal((await owner(`/api/rooms/${id}/export`)).room.status, 'completed');
-  const pausedRoom = await owner('/api/rooms', 'POST', { title: 'Recovery', topic: 'Pause safely', mode: 'debate', agentIds: [agent.id], joinAsParticipant: true, executionMode: 'demo', options: { rounds: 1 } }, 201);
+  const pausedRoom = await owner('/api/rooms', 'POST', { title: 'Recovery', topic: 'Pause safely', mode: 'debate', agentIds: [agent.id], joinAsParticipant: true, executionMode: 'live', options: { rounds: 1 } }, 201);
   const forbiddenRoom = await member(`/api/rooms/${pausedRoom.id}`);
   await member(`/api/rooms/${pausedRoom.id}/control`, 'POST', { action: 'start', generation: forbiddenRoom.executionGeneration }, 403, { 'idempotency-key': randomUUID() });
   await control('start', pausedRoom.id);
@@ -112,7 +133,7 @@ try {
   await owner('/api/dashboard', 'GET', undefined, 401);
   await owner('/api/auth/login', 'POST', { email: emails[0], password });
   assert.equal((await owner(`/api/rooms/${id}`)).status, 'completed');
-  console.log('PASS: production-built Next → Service → encrypted storage → independent demo workers; registration, invitation access, two-round human discussion, idempotency, replay, ownership, pause/resume/stop, logout and restore.');
+  console.log('PASS: production-built Next → Service → encrypted storage → independent workers + isolated mock model HTTP; registration, invitation access, two-round human discussion, idempotency, replay, ownership, pause/resume/stop, logout and restore.');
   console.log('NOT VERIFIED: real email, cloud Workflow delivery, paid model calls, existing production schema compatibility.');
 } catch (error) {
   console.error(diagnostics);
@@ -123,6 +144,7 @@ try {
     if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
     else child.kill('SIGTERM');
   }
+  if (modelServer) { modelServer.closeAllConnections(); await new Promise((done) => modelServer.close(done)); }
   await delay(300);
   await rm(directory, { recursive: true, force: true });
 }

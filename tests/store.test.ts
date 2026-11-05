@@ -34,7 +34,7 @@ test("same model can back multiple independently identified entities", () => {
     for (const id of ["one", "two"]) store.saveAgent({ id, providerId: "provider", vendor: "Vendor", modelId: "same-model", modelName: "Model", color: "#77977b", createdAt: new Date().toISOString() });
     assert.equal(store.listAgents().length, 2);
     store.deleteAgent("one");
-    assert.equal(store.getAgent("two")?.modelId, "same-model");
+    assert.equal((store.getAgent("two") as import("../src/domain/types").LegacyAgentEntity)?.modelId, "same-model");
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -11,8 +11,22 @@ export interface ProviderConnection {
   configured: boolean;
 }
 
-/** Identity is independent of model identity. Two entities may use the same model. */
+/** Agent identity and instructions never depend on the selected inference model. */
 export interface AgentEntity {
+  organizationId?: string;
+  id: string;
+  source: "system" | "personal";
+  ownerId?: string;
+  name: string;
+  description: string;
+  instructions: string;
+  version: number;
+  color: string;
+  createdAt: string;
+}
+
+/** Read-only compatibility for pre-platform records. Never infer their owner. */
+export interface LegacyAgentEntity {
   organizationId?: string;
   id: string;
   providerId: string;
@@ -22,6 +36,7 @@ export interface AgentEntity {
   color: string;
   createdAt: string;
 }
+export type StoredAgent = AgentEntity | LegacyAgentEntity;
 
 export interface RoomOptions {
   rounds: number;
@@ -61,6 +76,8 @@ export interface Participant {
   modelName: string;
   color: string;
   seat: number;
+  /** Server-only immutable persona snapshot. Redacted from all public views. */
+  agentSnapshot?: AgentEntity;
 }
 
 export interface ToolSpec {
@@ -127,6 +144,7 @@ export interface VotingView {
 }
 
 export interface RoomView extends RoomSummary {
+  readOnly?: boolean;
   executionGeneration?: number;
   self?: {
     participantId: string;
@@ -152,14 +170,7 @@ export interface RoomView extends RoomSummary {
 
 export interface DashboardData {
   agents: AgentEntity[];
-  providers: ProviderConnection[];
   rooms: RoomSummary[];
-}
-
-export interface ModelOption {
-  id: string;
-  name: string;
-  vendor: string;
 }
 
 export const DEFAULT_OPTIONS: RoomOptions = {
