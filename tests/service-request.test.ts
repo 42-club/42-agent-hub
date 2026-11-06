@@ -72,6 +72,7 @@ test("protected Service transport preserves account and storage authentication",
       assert.equal(seen.at(-1)!.method, "POST");
       assert.deepEqual(JSON.parse(seen.at(-1)!.body), input);
       assert.equal(seen.at(-1)!.headers["x-hub-client-signature"], "signed-attribution");
+      assert.equal(seen.at(-1)!.headers["x-hub-capabilities"], "organization-admission");
       await clubRequest("/auth/me", { token: "user-session" });
       assert.equal(seen.at(-1)!.headers.authorization, "Bearer user-session");
       const store = await new SharedHubStore().initialize();

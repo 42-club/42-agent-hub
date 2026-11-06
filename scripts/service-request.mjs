@@ -12,6 +12,8 @@ export class ServiceRequestError extends Error {
 /** @param {string} path @param {RequestInit} [init] */
 export async function serviceRequest(path, init = {}) {
   const headers = new Headers(init.headers);
+  // Opt in to Hub admission without changing strict legacy Desktop DTOs.
+  headers.set('x-hub-capabilities', 'organization-admission');
   const bypass = process.env.CLUB_SERVICE_PROTECTION_BYPASS?.trim();
   if (bypass) headers.set('x-vercel-protection-bypass', bypass);
   const response = await fetch(`${serviceUrl()}${path}`, {

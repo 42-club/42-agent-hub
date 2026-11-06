@@ -69,6 +69,8 @@ pnpm run dev
 
 `pnpm run dev` 启动 Next.js 和本机执行器。生产构建为 `pnpm run build`；本机常驻部署可使用 `pnpm start`。默认 Web 端口 3000，执行器端口 4317。
 
+Hub 的服务端请求携带 `x-hub-capabilities: organization-admission`，请求后端返回数据库准入字段；旧 Desktop 的严格响应格式保持兼容。
+
 Hub 默认要求显式配置 `CLUB_SERVICE_URL` / `HUB_SERVICE_TOKEN`。仅本地开发设置 `HUB_LOAD_SHARED_ENV=true` 后，才从 `../42-agent-service/.env.local`、`.env` 复用缺失值；可用 `CLUB_ENV_DIR` 调整目录。生产和 Vercel 一律不读取同级开发配置。
 
 共享后端配置 `CLUB_SUPABASE_URL`、`CLUB_SUPABASE_SECRET_KEY`、`CLUB_ORGANIZATION_ID`、`CLUB_MEETING_TOKEN`、`CLUB_RECRUITING_TOKEN`、`HUB_SERVICE_TOKEN`，以及原有 PostgreSQL、JWT 和加密配置。三个机器凭证独立生成，前端浏览器不可见。Hub 不需要数据库密码或 JWT 签名密钥。
