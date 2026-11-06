@@ -16,7 +16,7 @@ export function RoomMessage({ event, participant, previousRound, mode, side }: {
   const newRound = event.round > 0 && event.round !== previousRound;
   const time = new Date(event.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
   const meta = <div className="message-meta"><strong>{displayName}</strong>{participant && <span className="seat-label">{participant.seat} 号</span>}{event.type === "action" && <span className="action-label">行动</span>}<time dateTime={event.createdAt}>{time}</time></div>;
-  const avatar = <Avatar name={displayName} vendor={participant?.vendor} color={participant?.color || "#e7dfcf"} size="normal" />;
+  const avatar = <Avatar name={displayName} vendor={participant?.vendor} portrait={participant?.portrait} color={participant?.color || "#e7dfcf"} size="normal" />;
   return <>
     {newRound && <div className="round-divider"><span />第 {event.round} 轮<span /></div>}
     {event.type === "system" ? <div className="system-event"><span className="system-event-dot" /><p>{event.content}</p></div>

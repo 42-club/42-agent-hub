@@ -1,23 +1,13 @@
 import { z } from "zod";
-import { DEFAULT_OPTIONS } from "./types";
+import { AGENT_PORTRAITS, DEFAULT_OPTIONS } from "./types";
 
 const text = (max: number) => z.string().trim().min(1, "不能为空").max(max);
-export const providerSchema = z.object({
-  name: text(80),
-  kind: z.enum(["openrouter", "openai-compatible"]),
-  baseUrl: z.string().trim().url().refine((url) => {
-    const parsed = new URL(url);
-    return ["https:", "http:"].includes(parsed.protocol) && !parsed.username && !parsed.password && !parsed.search && !parsed.hash;
-  }, "请使用不带凭据或查询参数的 HTTP / HTTPS API 地址"),
-  apiKey: z.string().trim().max(4096).optional(),
-}).strict();
-
 export const agentSchema = z.object({
-  providerId: text(100),
-  vendor: text(80),
-  modelId: text(160),
-  modelName: text(80),
+  name: text(80),
+  description: z.string().trim().max(240).default(""),
+  instructions: z.string().trim().max(4000).default(""),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  portrait: z.enum(AGENT_PORTRAITS).optional(),
 }).strict();
 
 export const roomSchema = z.object({
@@ -26,7 +16,7 @@ export const roomSchema = z.object({
   mode: z.enum(["debate", "undercover", "werewolf"]),
   agentIds: z.array(text(100)).min(1).max(12),
   joinAsParticipant: z.boolean().default(false),
-  executionMode: z.enum(["demo", "live"]),
+  executionMode: z.enum(["demo", "live"]).default("live"),
   options: z.object({
     rounds: z.number().int().min(1).max(10).default(DEFAULT_OPTIONS.rounds),
     allowPrivateMessages: z.boolean().default(DEFAULT_OPTIONS.allowPrivateMessages),

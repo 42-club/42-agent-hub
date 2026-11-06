@@ -257,3 +257,88 @@ manager.run({...${JSON.stringify(input("orphan"))},onAction:async()=>{
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+
+test("platform routing executes one action after DeepSeek rejection, preserves persona and records attempts", { timeout: 15_000 }, async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "hub-routing-worker-"));
+  const manager = new AgentProcessManager({ dataDir });
+  let primaryCalls = 0, fallbackCalls = 0, actions = 0;
+  const primary = await providerServer((_request, response, body) => {
+    primaryCalls++; assert.deepEqual(body.thinking, { type: "disabled" });
+    response.writeHead(503); response.end("private-diagnostics");
+  });
+  const fallback = await providerServer((_request, response, body) => {
+    fallbackCalls++;
+    assert.match(JSON.stringify(body.messages), /PERSONA_SNAPSHOT/);
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: "routed", type: "function", function: { name: speech.name, arguments: JSON.stringify({ channelId: "public", content: "有效发言" }) } }] } }] }));
+  });
+  const attempts: import("../server/platform-models").ModelAttempt[] = [];
+  const models: import("../server/platform-models").PlatformModel[] = [
+    { provider: "deepseek", modelId: "primary", baseUrl: primary.baseUrl, apiKey: "primary-key" },
+    { provider: "openrouter", modelId: "fallback", baseUrl: fallback.baseUrl, apiKey: "fallback-key" },
+  ];
+  try {
+    await manager.run(input("routed", { executionMode: "live", provider: undefined, models, retryPolicy: { maxAttempts: 1, baseDelayMs: 0, requestTimeoutMs: 1000, budgetMs: 10000 },
+      participant: { ...participant("routed"), agentSnapshot: { id: "persona", name: "Persona", source: "system", description: "", instructions: "PERSONA_SNAPSHOT", color: "#123456", createdAt: "", version: 1 } },
+      onModelAttempt: async (attempt) => { attempts.push(attempt); },
+      onAction: async () => { actions++; return { turnComplete: true }; },
+    }));
+    assert.equal(primaryCalls, 1); assert.equal(fallbackCalls, 1); assert.equal(actions, 1);
+    assert.deepEqual(attempts.map((a) => a.status), ["started", "failed", "started", "succeeded"]);
+    assert.doesNotMatch(JSON.stringify(attempts), /private-diagnostics|primary-key|fallback-key/);
+    await assert.rejects(manager.run(input("unavailable", { executionMode: "live", provider: undefined, models: [models[0]], retryPolicy: { maxAttempts: 1, baseDelayMs: 0, requestTimeoutMs: 1000, budgetMs: 10000 }, onModelAttempt: async () => {} })), (error: unknown) => error instanceof AgentExecutionError && error.code === "models_unavailable");
+    assert.equal(primaryCalls, 2, "failed route must not be automatically retried by core");
+  } finally { await manager.close(); await primary.close(); await fallback.close(); await rm(dataDir, { recursive: true, force: true }); }
+});
+
+
+test("AI speeches are corrected before IPC and repeated reports stop after two invalid outputs", { timeout: 15_000 }, async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "hub-dialogue-"));
+  const manager = new AgentProcessManager({ dataDir });
+  let requests = 0, accepted = 0, alwaysReport = false;
+  const mock = await providerServer((_request, response, body) => {
+    requests++;
+    assert.match(JSON.stringify(body.messages), /默认一句完整口语/);
+    const content = alwaysReport || requests === 1 ? "结论：先看需求。" : "我觉得先找几个愿意付钱的人聊聊，心里会更有底。";
+    stream(response, { tool_calls: [{ index: 0, id: `speech-${requests}`, type: "function", function: { name: speech.name, arguments: JSON.stringify({ channelId: "public", content }) } }] });
+  });
+  try {
+    const provider = { kind: "openai-compatible" as const, baseUrl: mock.baseUrl, apiKey: "mock-secret" };
+    await manager.run(input("corrected", { executionMode: "live", provider, onAction: async (_name, args) => {
+      accepted++; assert.equal(args.content, "我觉得先找几个愿意付钱的人聊聊，心里会更有底。"); return { turnComplete: true };
+    } }));
+    assert.equal(requests, 2); assert.equal(accepted, 1);
+    alwaysReport = true; requests = 0;
+    await assert.rejects(manager.run(input("reports", { executionMode: "live", provider, onAction: async () => { accepted++; } })), (error: unknown) => error instanceof AgentExecutionError && error.code === "invalid_speech");
+    assert.equal(requests, 2, "bad speech corrections cannot trigger unbounded paid requests");
+    assert.equal(accepted, 1, "invalid drafts must never leave the worker as game actions");
+  } finally { await manager.close(); await mock.close(); await rm(dataDir, { recursive: true, force: true }); }
+});
+
+
+test("worker retries transient inference failures once and commits the terminal action only once", { timeout: 15000 }, async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "hub-worker-retry-"));
+  const manager = new AgentProcessManager({ dataDir });
+  let calls = 0, actions = 0;
+  const mock = await providerServer((_request, response) => {
+    calls++;
+    if (calls === 1) { response.writeHead(503); response.end("private-provider-text"); return; }
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: "retried", type: "function", function: { name: speech.name, arguments: JSON.stringify({ channelId: "public", content: "我觉得先试一小步就好。" }) } }] } }] }));
+  });
+  const attempts: import("../server/platform-models").ModelAttempt[] = [];
+  try {
+    await manager.run(input("retried", { executionMode: "live", provider: undefined,
+      models: [{ provider: "openrouter", modelId: "test", apiKey: "secret", baseUrl: mock.baseUrl }],
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 0, requestTimeoutMs: 1000, budgetMs: 5000 },
+      onModelAttempt: async (attempt) => { attempts.push(attempt); },
+      onAction: async () => { actions++; return { turnComplete: true }; },
+    }));
+    assert.equal(calls, 2); assert.equal(actions, 1);
+    assert.deepEqual(attempts.filter((a) => a.status === "started").map((a) => a.attemptNumber), [1, 2]);
+    assert.equal(new Set(attempts.map((a) => a.decisionId)).size, 1);
+    assert.equal(attempts.find((a) => a.status === "failed")?.next, "retry");
+    assert.doesNotMatch(JSON.stringify(attempts), /private-provider-text|secret/);
+  } finally { await manager.close(); await mock.close(); await rm(dataDir, { recursive: true, force: true }); }
+});

@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { X, LoaderCircle, ArrowUpRight, MessagesSquare } from "lucide-react";
-import type { GameMode, RoomStatus } from "@/domain/types";
+import type { AgentPortrait, GameMode, RoomStatus } from "@/domain/types";
+import { CharacterPortrait } from "./character-portrait";
 import { brandForVendor, VendorMark } from "./icons";
 export { brandForVendor } from "./icons";
 
@@ -21,7 +22,7 @@ export function errorMessage(error: unknown): string {
 }
 
 export const MODE_META: Record<GameMode, { label: string; subtitle: string; description: string; className: string }> = {
-  debate: { label: "圆桌辩论", subtitle: "让不同的观点，好好聊一聊。", description: "抛出一个问题，让模型独立思考、交流、回应。", className: "sage" },
+  debate: { label: "圆桌辩论", subtitle: "让不同的观点，好好聊一聊。", description: "抛出一个问题，让 Agent 独立思考、交流、回应。", className: "sage" },
   undercover: { label: "谁是卧底", subtitle: "相似的词，不一样的心思。", description: "从只言片语里寻找线索，看看谁藏得更好。", className: "peach" },
   werewolf: { label: "狼人杀", subtitle: "夜幕降临，故事开始。", description: "身份、推理与选择，一场属于 AI 的文字游戏。", className: "lilac" },
 };
@@ -30,11 +31,11 @@ export const STATUS_LABELS: Record<RoomStatus, string> = {
   waiting: "等待开始", running: "进行中", paused: "已暂停", completed: "已结束", error: "需要处理",
 };
 
-export function Avatar({ name, vendor = "", color, size = "normal", seat }: { name: string; vendor?: string; color?: string; size?: "small" | "normal" | "large"; seat?: number }) {
+export function Avatar({ name, vendor = "", color, portrait, size = "normal", seat }: { name: string; vendor?: string; color?: string; portrait?: AgentPortrait; size?: "small" | "normal" | "large"; seat?: number }) {
   const brand = brandForVendor(vendor);
   const background = brand.id === "other" && color?.startsWith("#") ? color : brand.background;
   return <span className={`model-avatar vendor-avatar avatar-${size} vendor-${brand.id}`} style={{ "--avatar-color": background, color: brand.foreground } as React.CSSProperties} aria-hidden="true">
-    {vendor === "真人" ? <span className="human-initial">{name.trim().slice(0, 1) || "我"}</span> : <VendorMark vendor={vendor} />}
+    {vendor === "真人" ? <span className="human-initial">{name.trim().slice(0, 1) || "我"}</span> : portrait ? <CharacterPortrait character={portrait} /> : <VendorMark vendor={vendor} />}
     {seat !== undefined && <span className="avatar-seat">{seat}</span>}
   </span>;
 }

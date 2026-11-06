@@ -39,8 +39,8 @@ try {
   session = await api('/api/auth/session');
   assert.equal(session.activeOrganization.id, organizationId);
   const dashboard = await api('/api/dashboard');
-  const agent = dashboard.agents.find((item) => item.id === process.env.HUB_VERIFY_AGENT_ID);
-  assert.ok(agent && dashboard.providers.some((provider) => provider.id === agent.providerId && provider.configured), 'Prepare a configured preset Agent first');
+  const agent = process.env.HUB_VERIFY_AGENT_ID ? dashboard.agents.find((item) => item.id === process.env.HUB_VERIFY_AGENT_ID) : dashboard.agents[0];
+  assert.ok(agent, 'No accessible system or personal Agent');
   const created = await api('/api/rooms', 'POST', { title: `P0 acceptance ${new Date().toISOString()}`, topic: '每位参与者用一句话讨论：一个可靠的 demo 应该具备什么？', mode: 'debate', agentIds: [agent.id, agent.id], joinAsParticipant: true, executionMode: 'live', options: { rounds: 2 } });
   roomId = created.id;
   console.log(`Acceptance room: ${base.origin}/rooms/${roomId}`);

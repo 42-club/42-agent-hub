@@ -2,10 +2,11 @@ import { DatabaseSync } from "node:sqlite";
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { AgentEntity, CreateRoomInput, ProviderConnection, RoomStatus } from "../src/domain/types";
+import type { StoredAgent, CreateRoomInput, ProviderConnection, RoomStatus } from "../src/domain/types";
 import type { GameState } from "../src/domain/engine";
 
 export interface RoomRecord {
+  modelAttempts?: (import("./platform-models").ModelAttempt & { participantId: string; phaseVersion: number; at: string })[];
   executionGeneration?: number;
   requests?: Record<string, string>;
   cloudAttempt?: { phaseVersion: number; participantIds: string[]; owner?: string; generation?: number };
@@ -47,11 +48,7 @@ export class HubStore {
       CREATE TABLE IF NOT EXISTS agents (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS rooms (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
-    if (seed && !this.db.prepare("SELECT value FROM metadata WHERE key = 'seeded'").get()) this.seed();
-    if (seed && process.env.OPENROUTER_API_KEY) {
-      const connection = this.listProviders()[0];
-      if (connection && !connection.configured) this.saveProvider({ name: "OpenRouter", kind: "openrouter", baseUrl: "https://openrouter.ai/api/v1", apiKey: process.env.OPENROUTER_API_KEY }, connection.id);
-    }
+
   }
 
   private encrypt(value: string): string {
@@ -89,9 +86,9 @@ export class HubStore {
   }
 
   deleteProvider(id: string) { this.db.prepare("DELETE FROM providers WHERE id = ?").run(id); }
-  listAgents(): AgentEntity[] { return (this.db.prepare("SELECT data FROM agents ORDER BY rowid").all() as { data: string }[]).map((row) => JSON.parse(row.data)); }
-  getAgent(id: string): AgentEntity | undefined { return this.listAgents().find((agent) => agent.id === id); }
-  saveAgent(agent: AgentEntity) { this.db.prepare("INSERT INTO agents VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data").run(agent.id, JSON.stringify(agent)); }
+  listAgents(): StoredAgent[] { return (this.db.prepare("SELECT data FROM agents ORDER BY rowid").all() as { data: string }[]).map((row) => JSON.parse(row.data)); }
+  getAgent(id: string): StoredAgent | undefined { return this.listAgents().find((agent) => agent.id === id); }
+  saveAgent(agent: StoredAgent) { this.db.prepare("INSERT INTO agents VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data").run(agent.id, JSON.stringify(agent)); }
   deleteAgent(id: string) { this.db.prepare("DELETE FROM agents WHERE id = ?").run(id); }
   listRooms(): RoomRecord[] { return (this.db.prepare("SELECT data FROM rooms ORDER BY rowid DESC").all() as { data: string }[]).map((row) => JSON.parse(row.data)); }
   getRoom(id: string): RoomRecord | undefined {
@@ -105,15 +102,4 @@ export class HubStore {
   async flush(_id?: string) {}
   close() { this.db.close(); }
 
-  private seed() {
-    const provider = this.saveProvider({ name: "OpenRouter", kind: "openrouter", baseUrl: "https://openrouter.ai/api/v1", apiKey: process.env.OPENROUTER_API_KEY ?? "" });
-    const models = [
-      ["Anthropic", "anthropic/claude-opus-4.6", "Claude Opus 4.6", "#bf8a71"],
-      ["OpenAI", "openai/gpt-5.4", "GPT-5.4", "#77977b"],
-      ["Google", "google/gemini-3.1-pro-preview", "Gemini 3.1 Pro", "#8294b5"],
-      ["DeepSeek", "deepseek/deepseek-v3.2", "DeepSeek V3.2", "#b29ab3"],
-    ];
-    for (const [vendor, modelId, modelName, color] of models) this.saveAgent({ id: randomUUID(), providerId: provider.id, vendor, modelId, modelName, color, createdAt: new Date().toISOString() });
-    this.db.prepare("INSERT INTO metadata VALUES ('seeded', '1')").run();
-  }
 }

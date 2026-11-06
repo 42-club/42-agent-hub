@@ -1,6 +1,8 @@
 export type GameMode = "debate" | "undercover" | "werewolf";
 export type RoomStatus = "waiting" | "running" | "paused" | "completed" | "error";
 export type ProviderKind = "openrouter" | "openai-compatible";
+export const AGENT_PORTRAITS = ["xiaoman", "chenxu", "xutang", "zhouye", "feiyu"] as const;
+export type AgentPortrait = typeof AGENT_PORTRAITS[number];
 
 export interface ProviderConnection {
   organizationId?: string;
@@ -11,8 +13,27 @@ export interface ProviderConnection {
   configured: boolean;
 }
 
-/** Identity is independent of model identity. Two entities may use the same model. */
+/** Agent identity and instructions never depend on the selected inference model. */
 export interface AgentEntity {
+  organizationId?: string;
+  id: string;
+  source: "system" | "personal";
+  /** Old records without this flag remain disabled. */
+  enabled?: boolean;
+  portrait?: AgentPortrait;
+  traits?: string[];
+  background?: string;
+  ownerId?: string;
+  name: string;
+  description: string;
+  instructions: string;
+  version: number;
+  color: string;
+  createdAt: string;
+}
+
+/** Read-only compatibility for pre-platform records. Never infer their owner. */
+export interface LegacyAgentEntity {
   organizationId?: string;
   id: string;
   providerId: string;
@@ -22,6 +43,7 @@ export interface AgentEntity {
   color: string;
   createdAt: string;
 }
+export type StoredAgent = AgentEntity | LegacyAgentEntity;
 
 export interface RoomOptions {
   rounds: number;
@@ -61,6 +83,9 @@ export interface Participant {
   modelName: string;
   color: string;
   seat: number;
+  portrait?: AgentPortrait;
+  /** Server-only immutable persona snapshot. Redacted from all public views. */
+  agentSnapshot?: AgentEntity;
 }
 
 export interface ToolSpec {
@@ -127,6 +152,8 @@ export interface VotingView {
 }
 
 export interface RoomView extends RoomSummary {
+  modelRecovery?: "retrying" | "fallback";
+  readOnly?: boolean;
   executionGeneration?: number;
   self?: {
     participantId: string;
@@ -152,14 +179,7 @@ export interface RoomView extends RoomSummary {
 
 export interface DashboardData {
   agents: AgentEntity[];
-  providers: ProviderConnection[];
   rooms: RoomSummary[];
-}
-
-export interface ModelOption {
-  id: string;
-  name: string;
-  vendor: string;
 }
 
 export const DEFAULT_OPTIONS: RoomOptions = {

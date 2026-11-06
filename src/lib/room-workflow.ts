@@ -5,7 +5,7 @@ async function tick(roomId: string, generation: number) {
   "use step";
   return runCloudTick(roomId, generation);
 }
-// A failed provider call must never be repeated automatically and billed twice.
+// The worker owns bounded model retries. Never replay a whole phase or its saved actions.
 tick.maxRetries = 0;
 
 export async function roomWorkflow(roomId: string, generation: number) {

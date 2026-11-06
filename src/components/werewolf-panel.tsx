@@ -69,7 +69,7 @@ export function WerewolfPanel({ room }: { room: RoomView }) {
     <section className="ww-section" aria-labelledby={`${id}-players-title`}>
       <div className="ww-section-heading"><h3 id={`${id}-players-title`}><Users size={16} aria-hidden="true" />玩家状态</h3><span>存活 {aliveCount} · 出局 {eliminatedCount}</span></div>
       <ul className="ww-player-list">{room.participants.map((person) => <li key={person.id} className={`ww-player-card ${person.alive ? "" : "is-eliminated"}`}>
-        <Avatar name={person.modelName} vendor={person.vendor} color={person.color} size="small" />
+        <Avatar name={person.modelName} vendor={person.vendor} portrait={person.portrait} color={person.color} size="small" />
         <div className="ww-player-copy"><div className="ww-player-identity"><span>{person.seat} 号</span><strong>{person.modelName}</strong></div><span className={`ww-player-role ${person.role ? "is-revealed" : ""}`}>{person.role ? <BadgeCheck size={13} aria-hidden="true" /> : <LockKeyhole size={12} aria-hidden="true" />}{person.role ? `身份：${person.role}` : "身份未揭晓"}</span></div>
         <span className={`ww-life-state ${person.alive ? "is-alive" : ""}`}>{person.alive ? <CircleCheck size={13} aria-hidden="true" /> : <CircleMinus size={13} aria-hidden="true" />}{person.alive ? "存活" : "出局"}</span>
       </li>)}</ul>

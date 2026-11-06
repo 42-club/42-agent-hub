@@ -27,6 +27,7 @@ export function ParticipantControls({ room, onUpdate }: { room: RoomView; onUpda
     catch (e) { setError(errorMessage(e)); }
     finally { sending.current = false; setBusy(false); }
   }
+  if (room.readOnly) return <section className="participant-controls" aria-label="历史房间"><p>历史房间仅供回看。使用内置 Agent 创建新房间，即可开始新的讨论。</p></section>;
   return <section className="participant-controls" aria-label="我的圆桌席位">
     {room.status === "waiting" ? <div className="seat-invitation"><div><strong>{self ? `你已入座 · ${person?.seat} 号席位` : "这张圆桌，也有你的位置"}</strong><p>{self ? "开场后按席位依次发言，请留在房间等待自己的回合。" : "开场前添加自己的席位，就能和 Agent 一起参与。"}</p></div><button className="button secondary small" disabled={busy || (!self && room.participantCount >= 12)} onClick={() => seat(self ? "DELETE" : "POST")}>{busy ? <LoaderCircle size={15} className="spin" /> : <UserPlus size={15} />}{self ? "退出席位" : room.participantCount >= 12 ? "席位已满" : user ? "添加我的席位" : "登录并入座"}</button></div>
       : self ? <>

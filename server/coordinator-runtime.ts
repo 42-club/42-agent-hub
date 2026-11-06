@@ -7,9 +7,11 @@ import { SharedHubStore, StorageError } from "./shared-store";
 import { HubStore, type RoomRecord } from "./store";
 import { canIdentifyFailedParticipant, displayRoomError, participantFailureLabel } from "./room-errors";
 import { AgentProcessManager } from "./agent-process-manager";
-import { getModelCatalog } from "./model-catalog";
+import { availableAgents, isPersonalAgent, systemAgents } from "./agent-catalog";
+import { platformModels } from "./platform-models";
+import { publicModelRecovery } from "./model-recovery";
 import { advanceGame, applyAction, createGame, getDecision, getPendingParticipantIds, projectGame, projectSelf } from "../src/domain/engine";
-import { agentSchema, controlSchema, participantActionSchema, providerSchema, roomSchema } from "../src/domain/validation";
+import { agentSchema, controlSchema, participantActionSchema, roomSchema } from "../src/domain/validation";
 import type { AgentEntity, Participant, RoomSummary, RoomView } from "../src/domain/types";
 
 
@@ -79,6 +81,7 @@ function summary(room: RoomRecord): RoomSummary {
     participantCount: projection.participants.length, modelNames: projection.participants.map((p) => p.modelName), round: projection.round, phaseLabel: projection.phaseLabel, createdAt: room.createdAt, updatedAt: room.updatedAt };
 }
 function view(room: RoomRecord, userId?: string): RoomView {
+  const readOnly = (process.env.NODE_ENV !== "test" || Boolean(process.env.VERCEL)) && (room.input.executionMode === "demo" || room.game.participants.some((p) => p.kind !== "human" && !p.agentSnapshot));
   const ownSeat = room.game.participants.find((p) => p.kind === "human" && p.userId === userId);
   // Games with human players do not expose spectator secrets to other accounts either.
   const hasHumans = room.game.participants.some((p) => p.kind === "human");
@@ -88,13 +91,13 @@ function view(room: RoomRecord, userId?: string): RoomView {
   const { civilianWord: _civilianWord, undercoverWord: _undercoverWord, ...options } = room.input.options;
   return { ...summary(room), executionGeneration: room.executionGeneration ?? 0, ...projection, privateMessages: ownSeat ? room.game.events.filter((event) => ["private", "wolves"].includes(event.visibility) && event.recipientIds.includes(ownSeat.id)) : [],
     ...(ownSeat ? { self: { ...(room.status === "waiting" ? { participantId: ownSeat.id, phaseVersion: 0 } : projectSelf(room.game, ownSeat.id)), tools: room.status === "running" ? projectSelf(room.game, ownSeat.id).tools : [] } } : {}),
-    canControl: Boolean(userId && (!room.ownerId || room.ownerId === userId)), options, error: displayRoomError(room),
-    participants: projection.participants.map((participant) => {
+    modelRecovery: publicModelRecovery(room), readOnly, canControl: !readOnly && Boolean(userId && (!room.ownerId || room.ownerId === userId)), options, error: displayRoomError(room),
+    participants: projection.participants.map(({ agentSnapshot: _privatePersona, ...participant }) => {
       if (room.status !== "running") return { ...participant, status: !participant.alive ? "eliminated" : room.status === "completed" ? "done" : "idle" };
       // Public process/activity metadata is available for debate only. Night actors are secret.
       if (room.input.mode !== "debate") return participant;
       const processState = runtimeStatus.get(`${room.id}:${participant.id}`);
-      return { ...participant, pid: processState?.pid, status: processState?.state === "thinking" ? "thinking" : participant.status };
+      return { ...participant, status: processState?.state === "thinking" ? "thinking" : participant.status };
     }),
   };
 }
@@ -144,6 +147,8 @@ async function runRoom(id: string, signal: AbortSignal, expectedGeneration: numb
   };
   if (shared) heartbeat = setTimeout(() => { watch = monitor(); }, 1000);
   try {
+    if (requireRoom(id).input.executionMode === "demo" && (process.env.NODE_ENV !== "test" || process.env.VERCEL)) return false;
+    if (requireRoom(id).input.executionMode === "live" && requireRoom(id).game.participants.some((p) => p.kind !== "human" && !p.agentSnapshot)) return false;
     while (!controller.signal.aborted) {
       const unlock = await lockRoom(id);
       let room: RoomRecord;
@@ -172,18 +177,27 @@ async function runRoom(id: string, signal: AbortSignal, expectedGeneration: numb
       } else {
         const snapshot = room;
         const jobs = agentIds.map((participantId) => {
-          const participant = projectGame(snapshot.game).participants.find((p) => p.id === participantId)!;
+          const participant = snapshot.game.participants.find((p) => p.id === participantId)!;
           const decision = getDecision(snapshot.game, participantId);
-          const provider = store.getProvider(participant.providerId);
           if (!decision) throw new Error("缺少当前阶段的决策任务");
-          if (snapshot.input.executionMode === "live" && !provider?.configured) throw new Error("模型连接尚未配置");
-          return { participant, decision, provider };
+          return { participant, decision };
         });
         await commit((current) => { current.cloudAttempt = { phaseVersion: snapshot.game.phaseVersion, participantIds: agentIds, owner, generation: expectedGeneration }; });
-        const results = await Promise.allSettled(jobs.map(async ({ participant, decision, provider }) => {
+        const results = await Promise.allSettled(jobs.map(async ({ participant, decision }) => {
           try {
             await manager.run({ roomId: id, participant, executionMode: snapshot.input.executionMode,
-              provider: { kind: provider?.kind ?? "openrouter", baseUrl: provider?.baseUrl ?? "https://openrouter.ai/api/v1", apiKey: provider?.apiKey ?? "" },
+              models: platformModels(),
+              onModelAttempt: async (attempt) => {
+                await commit((latest) => {
+                  if (latest.cloudAttempt?.owner !== owner) throw new DOMException("Execution superseded", "AbortError");
+                  if (attempt.status === "started" && (latest.game.phaseVersion !== snapshot.game.phaseVersion || !getPendingParticipantIds(latest.game).includes(participant.id))) throw new DOMException("Decision already resolved", "AbortError");
+                  const attempts = latest.modelAttempts ??= [];
+                  const previous = attempts.findIndex((item) => item.id === attempt.id);
+                  const record = { ...attempt, participantId: participant.id, phaseVersion: snapshot.game.phaseVersion, at: new Date().toISOString() };
+                  if (previous < 0) attempts.push(record); else attempts[previous] = record;
+                  if (attempts.length > 200) attempts.splice(0, attempts.length - 200);
+                });
+              },
               phaseVersion: snapshot.game.phaseVersion, prompt: decision.prompt, tools: decision.tools, requiredTool: decision.requiredTool, signal: controller.signal,
               onAction: async (name, args, actionId) => {
                 try {
@@ -207,10 +221,12 @@ async function runRoom(id: string, signal: AbortSignal, expectedGeneration: numb
         const failures = results.flatMap((result, index) => {
           if (result.status !== "rejected") return [];
           const labels: Record<string, string> = {
-            timeout: "请求超时", authentication: "OpenRouter 认证失败", rate_limit: "服务商限流，请稍后重试",
-            invalid_request: "上游拒绝请求参数或工具格式", insufficient_credits: "OpenRouter 余额不足",
-            model_unavailable: "模型不可用或 Model ID 不存在", service_unavailable: "上游模型服务暂时不可用",
-            missing_action: "没有提交所需工具行动", process_exit: "执行进程意外退出", provider: "上游模型请求失败（具体原因未返回）", cancelled: "请求已取消",
+            invalid_speech: "Agent 暂时未能生成合适的对话",
+            models_unavailable: "已尝试恢复，模型服务仍暂不可用", model_outcome_unknown: "模型请求结果未能确认",
+            timeout: "请求超时", authentication: "模型服务认证失败", rate_limit: "服务商限流，请稍后重试",
+            invalid_request: "上游拒绝请求参数或工具格式", insufficient_credits: "模型服务余额不足",
+            model_unavailable: "模型暂不可用", service_unavailable: "上游模型服务暂时不可用",
+            missing_action: "没有提交所需工具行动", process_exit: "Agent 执行意外中断", provider: "上游模型请求失败（具体原因未返回）", cancelled: "请求已取消",
           };
           const code = typeof result.reason?.code === "string" ? result.reason.code : "provider";
           // Preserve hidden night roles while identifying seats in public phases and revealed-role games.
@@ -221,7 +237,7 @@ async function runRoom(id: string, signal: AbortSignal, expectedGeneration: numb
           delete current.cloudAttempt;
           if (failures.length) {
             current.status = "error";
-            current.error = `${[...new Set(failures)].join("；")}。已确认的行动已保存，点击继续只重试未完成的席位。`;
+            current.error = `${[...new Set(failures)].join("；")}。本场进度已保留，请稍后继续。`;
           } else { current.game = advanceGame(current.game); if (current.game.finished) current.status = "completed"; }
         });
       }
@@ -245,9 +261,10 @@ async function launch(id: string, receipt?: [string, string]) {
   if (running.has(id)) throw new HttpError(409, "房间正在处理上一次操作，请稍后重试");
   if (running.size >= 3) throw new HttpError(409, "最多同时运行 3 个房间，请先暂停一个房间");
   const room = requireRoom(id);
-  if (room.input.executionMode === "live") {
-    for (const participant of projectGame(room.game).participants) if (participant.kind !== "human" && !store.getProvider(participant.providerId)?.configured) throw new HttpError(400, "请先为所有参与者配置模型连接的 API Key");
-  }
+  const testFixture = process.env.NODE_ENV === "test" && !process.env.VERCEL;
+  if (room.input.executionMode === "demo" && !testFixture) throw new HttpError(409, "历史演示房间仅供回看，请创建新房间。");
+  if (room.input.executionMode === "live" && room.game.participants.some((p) => p.kind !== "human" && !p.agentSnapshot)) throw new HttpError(409, "旧版房间仅供回看，请使用内置 Agent 创建新房间。");
+  if (room.input.executionMode === "live" && !platformModels().length) throw new HttpError(503, "当前 AI 服务暂不可用，本场进度已保留，请稍后重试。");
   if (receipt) (room.requests ??= {})[receipt[0]] = receipt[1];
   room.status = "running";
   room.executionGeneration = (room.executionGeneration ?? 0) + 1;
@@ -339,50 +356,35 @@ const server = createServer(async (request, response) => {
       if (!userId) throw new HttpError(401, "请先登录 42 账号");
       return { id: randomUUID(), kind: "human", userId, agentId: "", providerId: "", vendor: "真人", modelId: "human", modelName: userName, color: "#dbe6cf", seat };
     };
-    if (resource === "models" && method === "GET") {
-      try { await sendJson(response, await getModelCatalog()); } catch { throw new HttpError(502, "暂时无法读取 OpenRouter 模型目录，你仍可手动填写 Model ID。"); }
-      return;
-    }
-    if (resource === "dashboard" && method === "GET") { await sendJson(response, { agents: store.listAgents().filter(inOrganization), providers: store.listProviders().filter(inOrganization), rooms: store.listRooms().filter(inOrganization).map(summary) }); return; }
-
-    if (resource === "providers") {
-      if (organizationId && role !== "owner" && role !== "admin") throw new HttpError(403, "只有组织管理员可以配置连接");
-      if (id && !inOrganization(store.getProvider(id) ?? {})) throw new HttpError(404, "连接不存在");
-      if (method === "POST" || (method === "PUT" && id)) {
-        const input = providerSchema.parse(await body(request));
-        if (id && !store.getProvider(id)) throw new HttpError(404, "模型连接不存在");
-        if (id && store.listRooms().some((room) => room.status === "running" && projectGame(room.game).participants.some((p) => p.providerId === id))) throw new HttpError(409, "请先暂停使用此连接的房间");
-        const provider = store.saveProvider({ ...input, organizationId }, id ?? store.listProviders().find(inOrganization)?.id); await store.flush(provider.id); await sendJson(response, provider); return;
-      }
-      if (method === "DELETE" && id) {
-        if (!store.getProvider(id)) throw new HttpError(404, "模型连接不存在");
-        if (store.listAgents().some((agent) => agent.providerId === id)) throw new HttpError(409, "请先删除或调整使用此连接的 Agent");
-        if (store.listRooms().some((room) => room.status !== "completed" && projectGame(room.game).participants.some((p) => p.providerId === id))) throw new HttpError(409, "还有未结束的房间使用此连接");
-        store.deleteProvider(id); await store.flush(id); await sendJson(response, { ok: true }); return;
-      }
+    const catalog = () => availableAgents(store.listAgents(), userId);
+    if (resource === "models" || resource === "providers") throw new HttpError(404, "接口不存在");
+    if (resource === "dashboard" && method === "GET") {
+      await sendJson(response, { agents: catalog(), rooms: store.listRooms().filter(inOrganization).map(summary) }); return;
     }
     if (resource === "agents") {
-      if (id && !inOrganization(store.getAgent(id) ?? {})) throw new HttpError(404, "Agent 不存在");
-      if (method === "POST" || (method === "PUT" && id)) {
+      if (systemAgents().some((agent) => agent.id === id)) throw new HttpError(403, "系统 Agent 由平台维护，可以另存为个人 Agent。");
+      const previous = id ? store.getAgent(id) : undefined;
+      if (id && (!previous || !isPersonalAgent(previous) || previous.enabled !== true || previous.ownerId !== userId)) throw new HttpError(404, "Agent 不存在");
+      if (!userId || !organizationId) throw new HttpError(401, "请先登录并选择组织");
+      if ((method === "POST" && !id) || (method === "PUT" && id)) {
         const input = agentSchema.parse(await body(request));
-        if (!store.getProvider(input.providerId) || !inOrganization(store.getProvider(input.providerId)!)) throw new HttpError(400, "请选择已有的模型连接");
-        const previous = id ? store.getAgent(id) : undefined;
-        if (id && !previous) throw new HttpError(404, "Agent 不存在");
-        const agent: AgentEntity = { ...input, organizationId, id: id ?? randomUUID(), color: input.color ?? previous?.color ?? "#77977b", createdAt: previous?.createdAt ?? new Date().toISOString() };
+        const agent: AgentEntity = { ...input, organizationId: previous?.organizationId ?? organizationId,
+          id: id ?? randomUUID(), source: "personal", ownerId: userId, enabled: true,
+          version: previous && isPersonalAgent(previous) ? previous.version + 1 : 1,
+          color: input.color ?? previous?.color ?? "#77977b", createdAt: previous?.createdAt ?? new Date().toISOString() };
         store.saveAgent(agent); await store.flush(agent.id); await sendJson(response, agent); return;
       }
-      if (method === "DELETE" && id) {
-        if (!store.getAgent(id)) throw new HttpError(404, "Agent 不存在");
-        store.deleteAgent(id); await store.flush(id); await sendJson(response, { ok: true }); return;
-      }
+      if (method === "DELETE" && id) { store.deleteAgent(id); await store.flush(id); await sendJson(response, { ok: true }); return; }
     }
     if (resource === "rooms") {
       if (method === "POST" && !id) {
         const input = roomSchema.parse(await body(request));
+        if (input.executionMode === "demo" && (process.env.NODE_ENV !== "test" || process.env.VERCEL)) throw new HttpError(400, "新房间不支持演示模式。");
+        const agents = catalog();
         const participants: Participant[] = input.agentIds.map((agentId, index) => {
-          const agent = store.getAgent(agentId); if (!agent || !inOrganization(agent)) throw new HttpError(400, "所选 Agent 已被删除，请重新选择");
-          if (input.executionMode === "live" && !store.getProvider(agent.providerId)?.configured) throw new HttpError(400, "请先配置模型连接，或选择离线演示");
-          return { id: randomUUID(), agentId, providerId: agent.providerId, vendor: agent.vendor, modelId: agent.modelId, modelName: agent.modelName, color: agent.color, seat: index + 1 };
+          const agent = agents.find((item) => item.id === agentId);
+          if (!agent) throw new HttpError(400, "所选 Agent 不存在或无权使用，请重新选择。");
+          return { id: randomUUID(), agentId, providerId: "", vendor: "Agent", modelId: "", modelName: agent.name, color: agent.color, portrait: agent.portrait, seat: index + 1, agentSnapshot: structuredClone(agent) };
         });
         if (input.joinAsParticipant) participants.push(humanSeat(participants.length + 1));
         // A human could otherwise switch to spectator mode to discover secret identities.
@@ -399,6 +401,7 @@ const server = createServer(async (request, response) => {
           response.setHeader("content-disposition", `attachment; filename="42-agent-room-${id}.json"`);
           await sendJson(response, { formatVersion: 1, exportedAt: new Date().toISOString(), room: view(room, userId) }); return;
         }
+        if (view(room, userId).readOnly) throw new HttpError(409, "历史房间仅供回看，请使用内置 Agent 创建新房间。");
         if (method === "POST" && action === "control") {
           const control = controlSchema.parse(await body(request));
           const current = requireRoom(id);

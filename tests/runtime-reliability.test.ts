@@ -147,6 +147,16 @@ test("runtime reliability: fenced execution, isolation, idempotency, and authori
       assert.equal(worker.calls.length,1); assert.equal(recovery.calls.length,0);
       assert.equal((rows.get(room.id)!.data as RoomRecord).status,"paused");
     });
+    await t.test("a confirmed terminal action rejects a later model attempt before dispatch", async () => {
+      const room = seed(); const worker = await runtime();
+      const tick = worker.coordinator.tick(room.id, 1); await waitFor(() => worker.calls.length > 0);
+      const call = worker.calls[0];
+      await call.onAction("send_group_message", { content: "已确认的发言", channelId: "public" }, randomUUID());
+      await assert.rejects(call.onModelAttempt!({ id: randomUUID(), provider: "openrouter", modelId: "test", status: "started", attemptNumber: 2, decisionId: randomUUID() }), { name: "AbortError" });
+      assert.equal((rows.get(room.id)!.data as RoomRecord).modelAttempts?.length ?? 0, 0);
+      worker.gates.forEach((gate) => gate.resolve()); await tick;
+      assert.equal((rows.get(room.id)!.data as RoomRecord).game.events.filter((event) => event.content === "已确认的发言").length, 1);
+    });
     await t.test("concurrent human action retries, seats, controls and organization authorization",async()=>{
       const room=seed(true); const a=await runtime(),b=await runtime();
       const action={toolName:"send_group_message",args:{content:"human",channelId:"public"},actionId:randomUUID(),phaseVersion:1};
